@@ -5,10 +5,8 @@ import configparser
 import tempfile
 from typing import Union
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Form
-from model_loader import AudioProcessor, AudioParams, Response
-from starlette.concurrency import run_in_threadpool
-from whisperx.types import TranscriptionResult
+from fastapi import FastAPI, UploadFile
+from model_loader import AudioProcessor, AudioParams
 
 app = FastAPI()
 
