@@ -48,19 +48,13 @@ async def process(file: Union[str, UploadFile], param: AudioParams=None):
     if isinstance(file, UploadFile):
         file = await save_upload_file(file)
     
-    # If a language parameter is provided, update the language of the audio processor
-    if param.language:
-        audio_processor.update_language(param.language)
-    
-    # Load the audio file
-    batch_size = 16
-    audio = whisperx.load_audio(file)
-    
-    # Transcribe the audio file
-    result = audio_processor.model.transcribe(audio, batch_size=batch_size)
+    # Process the audio
+    result, audio = audio_processor.process(file, param)
     
     # If the segment_audio parameter is true, segment the audio
     if param.segment_audio:
+        if param.translate:
+            raise ValueError("Segmentation cannot be performed when translation is enabled.")
         result = whisperx.align(result["segments"], audio_processor.align_model, audio_processor.metadata, audio, model_settings["device"], return_char_alignments=False)
     
     # If the diarize parameter is true, diarize the audio

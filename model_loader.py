@@ -5,35 +5,43 @@ import whisperx
 class AudioParams(BaseModel):
     language: str
     segment_audio: Optional[bool] = False
-    
+    translate: Optional[bool] = False
+
 class AudioProcessor:
     def __init__(self, model_settings, align=False, diarization=False, HF_TOKEN=None):
-        self.model = load_whisperx(**model_settings)
+        self.model = load_whisperx(model_settings)
         if align:
             self.align_model, self.metadata = load_align(model_settings["language"], model_settings["device"])
         if diarization:
             self.diarize_model = load_diarization(HF_TOKEN, model_settings["device"])
 
-    def process(self, file: str, param: AudioParams=None):
+    def process(self, file: str, audio_params: AudioParams):
         batch_size = 16
         audio = whisperx.load_audio(file)
-        result = Response(**self.model.transcribe(audio, batch_size=batch_size))
-        return result
-    
-    def update_language(self, new_language):
-        self.model.language = new_language
 
-def load_whisperx(device: str = "cuda",
-                  compute_type: str = "float32",
-                  language: Optional[str] = None,
-                  whisper_arch: str = "large-v3",
-                  asr_options: dict = {"word_timestamps": True}):
+        # Check task and language
+        self.set_task(audio_params.translate)
+        self.update_language(audio_params.language)
+
+        result = self.model.transcribe(audio, batch_size=batch_size)
+        return result, audio
     
-    model = whisperx.load_model(device=device,
-                                compute_type=compute_type,
-                                language=language,
-                                whisper_arch=whisper_arch,
-                                asr_options=asr_options)
+    def set_task(self, translate: bool):
+        if translate:
+            self.model.task = 'translate'
+        else:
+            self.model.task = 'transcribe'
+    
+    def update_language(self, language: str):
+        if language:
+            self.model.language = language
+
+def load_whisperx(model_settings: dict):
+    model = whisperx.load_model(device=model_settings["device"],
+                                compute_type=model_settings["compute_type"],
+                                language=model_settings["language"],
+                                whisper_arch=model_settings["whisper_arch"],
+                                asr_options=model_settings["asr_options"])
     return model
 
 def load_align(language_code: str, device: str):
