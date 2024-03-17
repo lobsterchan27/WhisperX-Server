@@ -59,7 +59,7 @@ async def process(file: Union[str, UploadFile], param: AudioParams=None):
     audio = whisperx.load_audio(file)
     
     # Transcribe the audio file
-    result = TranscriptionResult(**audio_processor.model.transcribe(audio, batch_size=batch_size))
+    result = audio_processor.model.transcribe(audio, batch_size=batch_size)
     
     # If the segment_audio parameter is true, segment the audio
     if param.segment_audio:
@@ -68,7 +68,7 @@ async def process(file: Union[str, UploadFile], param: AudioParams=None):
     # If the diarize parameter is true, diarize the audio
     if param.diarize:
         diarize_segments = audio_processor.diarize_model(audio)
-        result = whisperx.diarize(result, diarize_segments)
+        result = whisperx.assign_word_speakers(result, diarize_segments)
     
     return result
 
