@@ -5,16 +5,7 @@ import whisperx
 class AudioParams(BaseModel):
     language: str
     segment_audio: Optional[bool] = False
-
-class Segment(BaseModel):
-    text: str
-    start: float
-    end: float
-
-class Response(BaseModel):
-    segments: List[Segment]
-    language: str
-
+    
 class AudioProcessor:
     def __init__(self, model_settings, align=False, diarization=False, HF_TOKEN=None):
         self.model = load_whisperx(**model_settings)

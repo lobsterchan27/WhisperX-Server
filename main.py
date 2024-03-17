@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, Form
 from model_loader import AudioProcessor, AudioParams, Response
 from starlette.concurrency import run_in_threadpool
+from whisperx.types import TranscriptionResult
 
 app = FastAPI()
 
@@ -22,13 +23,16 @@ model_settings = {
     "compute_type": config.get('Model Settings', 'compute_type', fallback='float32'),
     "language": config.get('Model Settings', 'language', fallback=None),
     "whisper_arch": config.get('Model Settings', 'whisper_arch', fallback='large-v3'),
-    "asr_options": {"word_timestamps": config.getboolean('Model Settings', 'word_timestamps', fallback=True)},
+    "asr_options": {
+        "word_timestamps": config.getboolean('Model Settings', 'word_timestamps', fallback=True)
+    },
 }
 
 audio_processor = AudioProcessor(model_settings,
                                  align=config.getboolean('Model Settings', 'align'),
                                  diarization=config.getboolean('Model Settings', 'diarize'),
                                  HF_TOKEN=HF_TOKEN)
+
 
 async def save_upload_file(upload_file: UploadFile) -> str:
     try:
@@ -38,21 +42,41 @@ async def save_upload_file(upload_file: UploadFile) -> str:
     except Exception as e:
         print(f"Failed to save upload file: {e}")
         return None
+
     
 @app.post("/api/audio")
 async def process(file: Union[str, UploadFile], param: AudioParams=None):
+    # If the file is an uploaded file, save it and get the file path
     if isinstance(file, UploadFile):
-        file = await run_in_threadpool(save_upload_file, file)  # run_in_threadpool is used to run sync function in async context
+        file = await save_upload_file(file)
+    
+    # If a language parameter is provided, update the language of the audio processor
     if param.language:
         audio_processor.update_language(param.language)
+    
+    # Load the audio file
     batch_size = 16
     audio = whisperx.load_audio(file)
-    result = Response(**audio_processor.model.transcribe(audio, batch_size=batch_size))
+    
+    # Transcribe the audio file
+    result = TranscriptionResult(**audio_processor.model.transcribe(audio, batch_size=batch_size))
+    
+    # If the segment_audio parameter is true, segment the audio
+    if param.segment_audio:
+        result = whisperx.align(result["segments"], audio_processor.align_model, audio_processor.metadata, audio, model_settings["device"], return_char_alignments=False)
+    
+    # If the diarize parameter is true, diarize the audio
+    if param.diarize:
+        diarize_segments = audio_processor.diarize_model(audio)
+        result = whisperx.diarize(result, diarize_segments)
+    
     return result
+
 
 @app.post("/api/text2speech")
 def process(text: str):
     return "Not implemented yet"
+
 
 if __name__ == "__main__":
     uvicorn.run(app,
