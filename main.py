@@ -2,11 +2,14 @@ import os
 import whisperx
 import uvicorn
 import configparser
-import tempfile
+
 from typing import Union
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
-from model_loader import AudioProcessor, AudioParams
+
+from audio_processor import AudioProcessor
+from schema import AudioParams
+from video_download import save_upload_file, save_link
 
 app = FastAPI()
 
@@ -31,42 +34,26 @@ audio_processor = AudioProcessor(model_settings,
                                  diarization=config.getboolean('Model Settings', 'diarize'),
                                  HF_TOKEN=HF_TOKEN)
 
+#load tts model + rvc model
 
-async def save_upload_file(upload_file: UploadFile) -> str:
-    try:
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file.write(await upload_file.read())
-            return temp_file.name
-    except Exception as e:
-        print(f"Failed to save upload file: {e}")
-        return None
 
-    
-@app.post("/api/audio")
-async def process(file: Union[str, UploadFile], param: AudioParams=None):
+@app.post("/api/transcribe")
+async def transcribe(file: Union[str, UploadFile], param: AudioParams=None):
     # If the file is an uploaded file, save it and get the file path
     if isinstance(file, UploadFile):
         file = await save_upload_file(file)
+    elif isinstance(file, str):
+        file = await save_link(file)
     
+    # Add asynchoronous tasks LLM caching, process audio, and return result. Refactor functions to be async
     # Process the audio
-    result, audio = audio_processor.process(file, param)
-    
-    # If the segment_audio parameter is true, segment the audio
-    if param.segment_audio:
-        if param.translate:
-            raise ValueError("Segmentation cannot be performed when translation is enabled.")
-        result = whisperx.align(result["segments"], audio_processor.align_model, audio_processor.metadata, audio, model_settings["device"], return_char_alignments=False)
-    
-    # If the diarize parameter is true, diarize the audio
-    if param.diarize:
-        diarize_segments = audio_processor.diarize_model(audio)
-        result = whisperx.assign_word_speakers(result, diarize_segments)
+    result = audio_processor.process(file, param)
     
     return result
 
 
 @app.post("/api/text2speech")
-def process(text: str):
+def text2speech(text: str):
     return "Not implemented yet"
 
 
