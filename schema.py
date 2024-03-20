@@ -1,7 +1,7 @@
 from typing import Optional
 from pydantic import BaseModel
 
-class AudioParams(BaseModel):
+class RequestParam(BaseModel):
     language: str = None
     text2speech: Optional[bool] = False
     segment_audio: Optional[bool] = False
