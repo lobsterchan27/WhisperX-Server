@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
 
 from audio_processor import AudioProcessor
-from schema import AudioParams
+from schema import RequestParam
 from video_download import save_upload_file, save_link
 
 app = FastAPI()
@@ -37,7 +37,7 @@ audio_processor = AudioProcessor(model_settings,
 
 
 @app.post("/api/transcribe")
-async def transcribe(file: Union[str, UploadFile], param: AudioParams=None):
+async def transcribe(file: Union[str, UploadFile], param: RequestParam=None):
     # If the file is an uploaded file, save it and get the file path
     if isinstance(file, UploadFile):
         file = await save_upload_file(file)

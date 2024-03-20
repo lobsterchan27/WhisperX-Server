@@ -7,7 +7,7 @@ import re
 import os
 from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 
-from schema import AudioParams
+from schema import RequestParam
 
 async def save_upload_file(upload_file: UploadFile) -> str:
     try:
@@ -23,7 +23,7 @@ def sanitize_filename(filename):
     return filename.replace(" ", "_")
 
 
-async def save_link(url, param: AudioParams) -> str:
+async def save_link(url, param: RequestParam) -> str:
 
     format = "bestaudio,bestvideo"
 

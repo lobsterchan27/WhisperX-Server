@@ -1,11 +1,7 @@
 from typing import Optional
 from pydantic import BaseModel
 import whisperx
-
-class AudioParams(BaseModel):
-    language: str
-    segment_audio: Optional[bool] = False
-    translate: Optional[bool] = False
+from schema import RequestParam
 
 class AudioProcessor:
     def __init__(self, model_settings, align=False, diarization=False, HF_TOKEN=None):
@@ -15,7 +11,7 @@ class AudioProcessor:
         if diarization:
             self.diarize_model = load_diarization(HF_TOKEN, model_settings["device"])
 
-    def process(self, file: str, audio_params: AudioParams):
+    def process(self, file: str, audio_params: RequestParam):
         batch_size = 16
         audio = whisperx.load_audio(file)
 
