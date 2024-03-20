@@ -1,5 +1,4 @@
 import os
-import whisperx
 import uvicorn
 import configparser
 
