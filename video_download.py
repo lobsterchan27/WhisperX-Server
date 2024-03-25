@@ -1,18 +1,22 @@
 import tempfile
 from yt_dlp import YoutubeDL
-from fastapi import UploadFile
+from fastapi import FastAPI, UploadFile
 import asyncio
+import aiofiles
 import subprocess
 import re
 import os
 import math
 
+from main import app
 from schema import RequestParam
 
 async def save_upload_file(upload_file: UploadFile) -> str:
     try:
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file.write(await upload_file.read())
+            data = await upload_file.read()
+            async with aiofiles.open(temp_file.name, 'wb') as f:
+                await f.write(data)
             return temp_file.name
     except Exception as e:
         print(f"Failed to save upload file: {e}")
@@ -22,7 +26,7 @@ def sanitize_filename(filename):
     filename = re.sub(r'[\\/*?:"<>|]', "", filename)
     return filename.replace(" ", "_")
 
-async def download_media(url, format, output_template, json=False):
+def download_media(url, format, output_template, json=False):
     ydl_opts = {
         'format': format,
         'paths': {'home': '/download'},
@@ -38,30 +42,35 @@ async def download_media(url, format, output_template, json=False):
     return filename
 
 
-async def save_link(url, param: RequestParam) -> str:
+async def save_link(app: FastAPI, url, param: RequestParam) -> str:
     """
     Download video, audio, and JSON from a given URL and save them in a folder.
 
     The folder and file structure is as follows:
     /download/title/title.video
     /download/title/title_audio.audio
-    /download/title/title.json
+    /download/title/title.info.json
+
+    Returns the path to the folder containing the downloaded files.
     """
     location = '%(title)s/%(title)s'
-    file_path, _ = await asyncio.gather(
-        download_media(url, 'bestaudio', f'{location}_audio.%(ext)s', json=True),
-        download_media(url, 'bestvideo', f'{location}.%(ext)s'),
-    )
-    folder_path = os.path.dirname(file_path)
+
+    tasks = [app.state.executor.submit(download_media, url, 'bestaudio', f'{location}_audio.%(ext)s', True)]
+    if param.get_video:
+        tasks.append(app.state.executor.submit(download_media, url, 'bestvideo', f'{location}.%(ext)s'))
+
+    results = await asyncio.gather(*[task.result() for task in tasks])
+    folder_path = os.path.dirname(results[0])
 
     return folder_path
 
 # To be refactored
-async def generate_storyboard(video_path: str, output_path: str) -> str:
+async def generate_storyboard(filename: str) -> str:
     thumb_dir = os.path.join(os.path.dirname(filename), 'thumb')
     os.makedirs(thumb_dir, exist_ok=True)
 
     base_filename = os.path.splitext(os.path.basename(filename))[0]
+    output_path = os.path.join(thumb_dir, base_filename)
 
     # Command to get the original video's resolution
     cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', filename]
@@ -101,10 +110,11 @@ async def generate_storyboard(video_path: str, output_path: str) -> str:
         'ffmpeg', '-y', '-i', filename, '-vf',
         f'select=\'gte(t\,{filtered_timestamps[0]-0.02})*lte(t\,{filtered_timestamps[0]+0.02})\'+' + '+'.join(f'gte(t\,{timestamp-0.02})*lte(t\,{timestamp+0.02})' for timestamp in filtered_timestamps[1:]) +
         f',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
-        f'{thumb_dir}/{base_filename}_grid.webp'
+        f'{output_path}_grid.webp'
     ]
     subprocess.run(cmd, check=True)
     print(num_frames, grid_rows, grid_cols, aspect_ratio)
+    return output_path
 
 
 if __name__ == "__main__":
