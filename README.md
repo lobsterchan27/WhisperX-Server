@@ -10,3 +10,8 @@ Instructions for how to install your project. This could include commands to run
 
 ```bash
 pip install -r requirements.txt
+```
+
+##To do
+
+connect components, inference settings testing, streaming pipeline, storyboard generation refactor.
