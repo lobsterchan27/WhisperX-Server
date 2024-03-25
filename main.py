@@ -2,15 +2,14 @@ import os
 import uvicorn
 import configparser
 
-from typing import Union
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 
 from audio_processor import AudioProcessor
 from schema import RequestParam
 from video_download import save_upload_file, save_link
-
-app = FastAPI()
 
 # Load the environment variables
 load_dotenv()
@@ -28,25 +27,32 @@ model_settings = {
     },
 }
 
-audio_processor = AudioProcessor(model_settings,
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.executor = ThreadPoolExecutor(max_workers=5)
+    app.state.audio_processor = AudioProcessor(model_settings,
                                  align=config.getboolean('Model Settings', 'align'),
                                  diarization=config.getboolean('Model Settings', 'diarize'),
                                  HF_TOKEN=HF_TOKEN)
+    yield
+    app.state.audio_processor = None
+    app.state.executor.shutdown(wait=True)
 
+app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
 
 
 @app.post("/api/transcribe")
-async def transcribe(file: Union[str, UploadFile], param: RequestParam=None):
+async def transcribe(file: str | UploadFile, param: RequestParam=None):
     # If the file is an uploaded file, save it and get the file path
     if isinstance(file, UploadFile):
         file = await save_upload_file(file)
     elif isinstance(file, str):
-        file = await save_link(file)
+        file = await save_link(app, file)
     
     # Add asynchoronous tasks LLM caching, process audio, and return result. Refactor functions to be async
     # Process the audio
-    result = audio_processor.process(file, param)
+    result = app.state.audio_processor.process(file, param)
     
     return result
 
