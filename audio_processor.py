@@ -52,5 +52,9 @@ def load_diarization(use_auth_token: str, device: str):
 def clean_up(self):
     gc.collect()
     torch.cuda.empty_cache()
-    del self.model, self.align_model, self.diarize_model
-    pass
+    if hasattr(self, 'model'):
+        del self.model
+    if hasattr(self, 'align_model'):
+        del self.align_model
+    if hasattr(self, 'diarize_model'):
+        del self.diarize_model
