@@ -3,7 +3,7 @@ import uvicorn
 import configparser
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form, Depends
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -41,19 +41,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
 
+@app.post("/api/transcribe/file")
+async def transcribe_file(file: UploadFile = File(...), param: RequestParam = Depends(RequestParam)):
+    file_path = await save_upload_file(file)
+    result = app.state.audio_processor.process(file_path, param)
+    return result
 
-@app.post("/api/transcribe")
-async def transcribe(file: str | UploadFile, param: RequestParam=None):
-    # If the file is an uploaded file, save it and get the file path
-    if isinstance(file, UploadFile):
-        file = await save_upload_file(file)
-    elif isinstance(file, str):
-        file = await save_link(app, file)
-    
-    # Add asynchoronous tasks LLM caching, process audio, and return result. Refactor functions to be async
-    # Process the audio
-    result = app.state.audio_processor.process(file, param)
-    
+@app.post("/api/transcribe/url")
+async def transcribe_url(url: str = Form(...), param: RequestParam = Depends(RequestParam)):
+    file_path = await save_link(app, url)
+    result = app.state.audio_processor.process(file_path, param)
     return result
 
 
