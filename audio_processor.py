@@ -1,6 +1,7 @@
-from typing import Optional
-from pydantic import BaseModel
 import whisperx
+import gc
+import torch
+
 from schema import RequestParam
 
 class AudioProcessor:
@@ -47,3 +48,9 @@ def load_align(language_code: str, device: str):
 def load_diarization(use_auth_token: str, device: str):
     diarize_model = whisperx.DiarizationPipeline(use_auth_token=use_auth_token, device=device)
     return diarize_model
+
+def clean_up(self):
+    gc.collect()
+    torch.cuda.empty_cache()
+    del self.model, self.align_model, self.diarize_model
+    pass
