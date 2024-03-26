@@ -2,8 +2,10 @@ import os
 import uvicorn
 import configparser
 
+from typing import Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile, Form, Depends
+from fastapi import FastAPI, File, UploadFile, Form
+from pydantic import HttpUrl
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -37,18 +39,41 @@ async def lifespan(app: FastAPI):
     yield
     app.state.audio_processor = None
     app.state.executor.shutdown(wait=True)
+    app.state.audio_processor.clean_up()
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
 
+
 @app.post("/api/transcribe/file")
-async def transcribe_file(file: UploadFile = File(...), param: RequestParam = Depends(RequestParam)):
+async def transcribe_file(file: UploadFile = File(...),
+                          language: Optional[str] = Form(None),
+                          text2speech: Optional[bool] = Form(False),
+                          segment_audio: Optional[bool] = Form(False),
+                          translate: Optional[bool] = Form(False),
+                          get_video: Optional[bool] = Form(False)):
+    param = RequestParam(language=language,
+                         text2speech=text2speech,
+                         segment_audio=segment_audio,
+                         translate=translate,
+                         get_video=get_video)
     file_path = await save_upload_file(file)
-    result = app.state.audio_processor.process(file_path, param)
+    result, _ = app.state.audio_processor.process(file_path, param)
     return result
 
+
 @app.post("/api/transcribe/url")
-async def transcribe_url(url: str = Form(...), param: RequestParam = Depends(RequestParam)):
+async def transcribe_url(url: HttpUrl,
+                         language: Optional[str] = None,
+                         text2speech: Optional[bool] = False,
+                         segment_audio: Optional[bool] = False,
+                         translate: Optional[bool] = False,
+                         get_video: Optional[bool] = False):
+    param = RequestParam(language=language,
+                         text2speech=text2speech,
+                         segment_audio=segment_audio,
+                         translate=translate,
+                         get_video=get_video)
     file_path = await save_link(app, url)
     result = app.state.audio_processor.process(file_path, param)
     return result
