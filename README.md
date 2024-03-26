@@ -6,11 +6,16 @@ Server Whisper, LLM, TTS
 
 ## Installation
 
-Instructions for how to install your project. This could include commands to run, software to install, or files to download.
+Create and activate a virtual environment
+```
+python -m venv venv
+```
+Follow the instructions [here](https://pytorch.org/) to install PyTorch.
 
-```bash
+```
 pip install -r requirements.txt
 ```
+requirements.txt is not fully up to date. install any missing dependencies.
 
 ## To do
 
