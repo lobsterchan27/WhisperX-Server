@@ -1,6 +1,4 @@
 import tempfile
-from yt_dlp import YoutubeDL
-from fastapi import FastAPI, UploadFile
 import asyncio
 import aiofiles
 import subprocess
@@ -8,7 +6,11 @@ import re
 import os
 import math
 
-from main import app
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
+
+from yt_dlp import YoutubeDL
+from fastapi import UploadFile
 from schema import RequestParam
 
 async def save_upload_file(upload_file: UploadFile) -> str:
@@ -42,7 +44,7 @@ def download_media(url, format, output_template, json=False):
     return filename
 
 
-async def save_link(app: FastAPI, url, param: RequestParam) -> str:
+async def save_link(executor: ThreadPoolExecutor, url, param: RequestParam) -> str:
     """
     Download video, audio, and JSON from a given URL and save them in a folder.
 
@@ -53,13 +55,14 @@ async def save_link(app: FastAPI, url, param: RequestParam) -> str:
 
     Returns the path to the folder containing the downloaded files.
     """
+
     location = '%(title)s/%(title)s'
 
-    tasks = [app.state.executor.submit(download_media, url, 'bestaudio', f'{location}_audio.%(ext)s', True)]
+    tasks = [executor.submit(download_media, url, 'bestaudio', f'{location}_audio.%(ext)s', True)]
     if param.get_video:
-        tasks.append(app.state.executor.submit(download_media, url, 'bestvideo', f'{location}.%(ext)s'))
+        tasks.append(executor.submit(download_media, url, 'bestvideo', f'{location}.%(ext)s'))
 
-    results = await asyncio.gather(*[task.result() for task in tasks])
+    results = [task.result() for task in as_completed(tasks)]
     folder_path = os.path.dirname(results[0])
 
     return folder_path
@@ -102,8 +105,14 @@ async def generate_storyboard(filename: str) -> str:
     # Determine the grid dimensions
     num_frames = len(filtered_timestamps)
     grid_size = math.sqrt(num_frames * aspect_ratio)
-    grid_rows = round(grid_size)
+
+    # Round grid_rows down and grid_cols up to ensure enough cells
+    grid_rows = math.floor(grid_size)
     grid_cols = math.ceil(num_frames / grid_rows)
+
+    # If not enough cells, increment grid_rows
+    if grid_rows * grid_cols < num_frames:
+        grid_rows += 1
 
     # Generate the thumbnail grid using the filtered timestamps
     cmd = [
@@ -119,5 +128,42 @@ async def generate_storyboard(filename: str) -> str:
 
 if __name__ == "__main__":
     # Run the save_link coroutine
-    result = asyncio.run(save_link("https://www.youtube.com/watch?v=YvOK6DiZw1M4", RequestParam(language='en', get_video=True)))
-    print(result)
+    # result = asyncio.run(save_link("https://www.youtube.com/shorts/W2xxT3b-4H0", RequestParam(language='en', get_video=True)))
+    # folder_name = os.path.basename(result)
+    # joined = os.path.join(result, folder_name)
+    # files = glob.glob(f"{joined}.*")
+    # if files:
+    #     asyncio.run(generate_storyboard(files[0]))
+
+    import requests
+
+    # The URL of the endpoint
+    url = "http://localhost:8127/api/transcribe/file"
+
+    # The file to upload
+    file_path = "D:\Cool\WhisperX Server\download\Look_At_What_Happens_When_I_Heat_Treat_a_Metal_Lattice\Look_At_What_Happens_When_I_Heat_Treat_a_Metal_Lattice_audio.webm"
+
+    # The RequestParam data
+    param_data = {
+        "language": "en",
+        "text2speech": "False",
+        "segment_audio": "False",
+        "translate": "False",
+        "get_video": "False"
+    }
+
+    # The multipart/form-data payload
+    payload = {
+        "file": ("filename", open(file_path, 'rb')),
+        "language": (None, param_data["language"]),
+        "text2speech": (None, param_data["text2speech"]),
+        "segment_audio": (None, param_data["segment_audio"]),
+        "translate": (None, param_data["translate"]),
+        "get_video": (None, param_data["get_video"])
+    }
+
+    # Send the POST request
+    response = requests.post(url, files=payload)
+
+    # Print the response
+    print(response.json())
