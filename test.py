@@ -2,106 +2,119 @@ import requests
 import os
 import torch
 import torchaudio
-from dotenv import load_dotenv
 from tortoise import api
 from tortoise.utils.audio import load_voice
 
-load_dotenv()
-filepath = "C:/Users/Lobby/Look At What Happens When I Heat Treat a Metal Lattice! [W2xxT3b-4H0].webm"
 
-def whisperx_response(video_path):
-    url = "http://127.0.0.1:8127/api/audio"
-    params = {"file": video_path}
-    try:
-        response = requests.post(url, params=params)
-        if response.status_code != 200:
-            print(response.content)  # Print the response content if the status code is not 200
-        data = response.json()
-        segments = data['segments']
-        language = data['language']
-        return segments, language
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred: {e}")
 
-if __name__ == "__main__":
-    # segments, language = whisperx_response(filepath)
-    # print("Segments:", segments)
-    # print("Language:", language)
-    model_path = os.getenv("Model_directory")
-    tts = api.TextToSpeech(models_dir=model_path, use_deepspeed=False, kv_cache=True, half=False, device='cuda')
-    voice = 'kitty'
+import os
+from time import time
+
+import torch
+
+from tortoise.api_fast import TextToSpeech
+from tortoise.utils.text import split_and_recombine_text
+from tortoise.utils.audio import load_audio, load_voice, get_voices
+from schema import TTSParam
+import sounddevice as sd
+import queue
+import threading
+from time import sleep
+from scipy.io.wavfile import write
+import numpy as np
+import pyaudio
+
+def play_save_audio(audio_stream, sample_width, channels, sample_rate):
+    # Initialize PyAudio
+    p = pyaudio.PyAudio()
+
+    # Open PyAudio stream for playing audio
+    play_stream = p.open(format=p.get_format_from_width(sample_width),
+                         channels=channels,
+                         rate=sample_rate,
+                         output=True)
+
+    # Reset the stream position to the beginning
+    audio_stream.seek(0)
+
+    # Read and play/save the audio data
+    data_chunks = []
+    data = audio_stream.read(1024)
+    while data:
+        # Play the audio data
+        play_stream.write(data)
+
+        # Append the data chunk to a list
+        data_chunks.append(data)
+
+        # Read the next chunk of data
+        data = audio_stream.read(1024)
+
+    # Stop the PyAudio stream
+    play_stream.stop_stream()
+    play_stream.close()
+
+    # Terminate the PyAudio object
+    p.terminate()
+
+    # Concatenate all data chunks into a single NumPy array
+    all_audio_data = b''.join(data_chunks)
+    all_audio_numpy = np.frombuffer(all_audio_data, dtype=np.float32)
+
+    # Write the audio data to a WAV file using scipy.io.wavfile.write
+    write('output.wav', sample_rate, all_audio_numpy)
+
+
+def tts_stream(TTSParam: TTSParam):
+
+    models_dir = os.getenv("MODEL_DIRECTORY")
+    deepspeed = False
+    half = False
 
     extra_voice_dirs = [os.path.join(os.getcwd(), 'voices')]
 
-    voice_samples, conditioning_latents = load_voice(voice, extra_voice_dirs)
-    torch.save(voice_samples, os.path.join('voices', f"{voice}_samples.pth"))
-    text = "Oh my god, why can't I keep my lips off this cock"
+    if torch.backends.mps.is_available():
+        deepspeed = False
+    tts = TextToSpeech(models_dir=models_dir, use_deepspeed=deepspeed, kv_cache=True, half=half)
 
-    output_dir = 'output'
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    voice = TTSParam.voice
 
-    gen = tts.tts_with_preset(text, preset='ultra_fast', k=1, voice_samples=voice_samples, conditioning_latents=conditioning_latents)
-    torchaudio.save(os.path.join(output_dir, f'{voice}.wav'), gen.squeeze(0).cpu(), 24000)
+    # Process text
+    input_text = TTSParam.text
+    if '|' in input_text:
+        print("Found the '|' character in your text, which I will use as a cue for where to split it up. If this was not"
+              "your intent, please remove all '|' characters from the input.")
+        texts = text.split('|')
+    else:
+        texts = split_and_recombine_text(input_text)
 
+    audio_stream = io.BytesIO()
+    # playback_thread = threading.Thread(target=play_audio, args=(audio_stream,))
+    # playback_thread.start()
 
+    voice_samples, _ = load_voice(voice, extra_voice_dirs)
 
-# import requests
-# import os
-# import torch
-# import torchaudio
-# from time import time
-# from dotenv import load_dotenv
-# from tortoise import api_fast
-# from tortoise.utils.audio import load_voice
+    for j, text in enumerate(texts):
+        audio_generator = tts.tts_stream(text, voice_samples=voice_samples, use_deterministic_seed=seed)
+        for wav_chunk in audio_generator:
+            print("chunk")
+            audio_stream.write(wav_chunk.cpu().numpy().tobytes())
 
-# load_dotenv()
-# filepath = "C:/Users/Lobby/Look At What Happens When I Heat Treat a Metal Lattice! [W2xxT3b-4H0].webm"
+    # Reset the stream position to the beginning
+    audio_stream.seek(0)
 
-# def whisperx_response(video_path):
-#     url = "http://127.0.0.1:8127/api/audio"
-#     params = {"file": video_path}
-#     try:
-#         response = requests.post(url, params=params)
-#         if response.status_code != 200:
-#             print(response.content)  # Print the response content if the status code is not 200
-#         data = response.json()
-#         segments = data['segments']
-#         language = data['language']
-#         return segments, language
-#     except requests.exceptions.RequestException as e:
-#         print(f"An error occurred: {e}")
+    return audio_stream
 
-# if __name__ == "__main__":
-#     # segments, language = whisperx_response(filepath)
-#     # print("Segments:", segments)
-#     # print("Language:", language)
-#     model_path = os.getenv("Model_directory")
-#     tts = api_fast.TextToSpeech(models_dir=model_path, use_deepspeed=False, kv_cache=True, half=False, device='cuda')
-#     voice = 'kitty'
-#     extra_voice_dirs = [os.path.join(os.getcwd(), 'voices')]
-#     print(extra_voice_dirs)
-#     voice_samples, conditioning_latents = load_voice(voice, extra_voice_dirs)
-#     text = "Oh my god, why can't i keep my lips off this cock?"
+seed = 42
+import io
+from pydub import AudioSegment
+from pydub.playback import play
+if __name__ == "__main__":
+    prompt = "Hello, my name is Tom. What is your name?"
+    ttsparam = TTSParam(text=prompt, voice="tom", preset="ultra_fast", regenerate=None, seed=42, kv_cache=True)
 
-#     output_dir = 'output'
-#     if not os.path.exists(output_dir):
-#         os.makedirs(output_dir)
-
-#     preset_settings = {
-#         'temperature': .8, 
-#         'length_penalty': 1.0, 
-#         'repetition_penalty': 2.0,
-#         'top_p': .8,
-#         'num_autoregressive_samples': 2
-#     }
-
-#     start_time = time()
-
-#     gen = tts.tts(text, voice_samples=voice_samples, use_deterministic_seed=None, **preset_settings)
-
-#     end_time = time()
-#     audio_ = gen.squeeze(0).cpu()
-#     print("Time taken to generate the audio: ", end_time - start_time, "seconds")
-#     print("RTF: ", (end_time - start_time) / (audio_.shape[1] / 24000))
-#     torchaudio.save(os.path.join(output_dir, f'{voice}.wav'), audio_, 24000)
+    sample_width = 4  # Assuming 32-bit float
+    channels = 1  # Mono audio
+    sample_rate = 24000  # Sample rate of 24 kHz
+    stream = tts_stream(ttsparam)
+    play_save_audio(stream, sample_width, channels, sample_rate)
