@@ -3,7 +3,6 @@ import uvicorn
 import configparser
 
 from typing import Optional
-from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, Form
 from pydantic import HttpUrl
 from concurrent.futures import ThreadPoolExecutor
@@ -12,10 +11,13 @@ from contextlib import asynccontextmanager
 from audio_processor import AudioProcessor
 from schema import RequestParam
 from video_download import save_upload_file, save_link
+from settings import HF_TOKEN
 
-# Load the environment variables
-load_dotenv()
-HF_TOKEN = os.getenv("HF_TOKEN")
+import tts_functions
+
+
+
+
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI):
                                  align=config.getboolean('Model Settings', 'align'),
                                  diarization=config.getboolean('Model Settings', 'diarize'),
                                  HF_TOKEN=HF_TOKEN)
+    # tts_functions.create_tts()
     yield
     app.state.audio_processor = None
     app.state.executor.shutdown(wait=True)
