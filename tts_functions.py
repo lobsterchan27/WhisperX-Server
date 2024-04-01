@@ -1,11 +1,11 @@
 from tortoise.api_fast import TextToSpeech
 from tortoise.utils.text import split_and_recombine_text
 from tortoise.utils.audio import get_voices, load_audio
+from collections import deque
 
 import torch
 import torchaudio
 import os
-import pprint
 import pyaudio
 import numpy as np
 
@@ -91,7 +91,12 @@ def generate_tts(tts: TextToSpeech, prompt, voice):
     print("RTF: ", (end_time - start_time) / (audio.shape[1] / 24000))
     return audio
 
-def generate_tts_stream(tts: TextToSpeech, prompt, voice, audio_queue, save_path=None):
+def generate_tts_stream(tts: TextToSpeech,
+                        prompt,
+                        voice,
+                        audio_queue: deque=None,
+                        save_path=None,
+                        event=None):
     # Process text
     if '|' in prompt:
         print("Found the '|' character in your text, which I will use as a cue for where to split it up. If this was not"
@@ -102,38 +107,42 @@ def generate_tts_stream(tts: TextToSpeech, prompt, voice, audio_queue, save_path
 
     conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
 
+    # Initialize the audio data list if a save path is provided
     audio_data = [] if save_path is not None else None
 
+    # Generate the audio for each prompt split by '|' or split_and_recombine_text
     for prompt in prompts:
         gen = tts.tts_stream(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
         for wav_chunk in gen:
             cpu_chunk = wav_chunk.cpu()
             if save_path is not None:
                 audio_data.append(cpu_chunk)
-            audio_queue.put(cpu_chunk.numpy().tobytes())
-    audio_queue.put(None)
-
-    if save_path is not None:
+            if audio_queue is not None:
+                audio_queue.extend(cpu_chunk.numpy().tobytes())
+                # event for use with rvc
+                if event is not None:
+                    event.set()
+    
+    # Save the audio if a save path is provided
+    if save_path is not None and audio_data:
         audio_data = torch.cat(audio_data, dim=-1)
         audio_data = audio_data.unsqueeze(0)
-        torchaudio.save('temp.wav', audio_data, 24000)
+        torchaudio.save(save_path, audio_data, 24000)
 
-import time
-def play_audio(audio_queue: Queue):
+# Local function to play audio
+def play_audio(audio_queue: deque):
     # Initialize PyAudio
     p = pyaudio.PyAudio()
-    # Open a new PyAudio stream outside the loop
     stream = p.open(format=pyaudio.paFloat32,
                     channels=1,
                     rate=24000,
                     output=True)
 
     while True:
-        chunk = audio_queue.get()
-        if chunk is None:
+        if not audio_queue:  # If the deque is empty, break the loop
             break
+        chunk = audio_queue.popleft()  # Get the next chunk
         stream.write(chunk)
-
 
     # Clean up PyAudio
     stream.stop_stream()
