@@ -1,10 +1,9 @@
 import sys
 import time
 import torch
-import queue
+import threading
 import librosa
 import numpy as np
-import websockets
 
 import torch.nn.functional as F
 import torchaudio.transforms as tat
@@ -16,9 +15,6 @@ from rvc.tools.torchgate import TorchGate
 from rvc.infer.modules.vc.modules import VC
 from multiprocessing import Queue
 from collections import deque
-import dotenv
-
-dotenv.load_dotenv()
 
 class VCWrapper:
     def __init__(self, model_path = None):
@@ -92,6 +88,8 @@ class RVCWrapper:
         self.fade_out_window = None
         self.output_buffer = None
         self.sola_buffer = None
+
+        self.calculate_delay_time()
 
 
     def calculate_delay_time(self):
@@ -382,13 +380,15 @@ class RVCWrapper:
         else:
             print(strr % args)
 
-    def audio_stream(self, audio_queue: deque, ws_out):
+    def audio_stream(self, audio_queue: deque, ws_out, event: threading.Event):
         # Initialize buffers
         in_buffer = np.zeros(self.block_frame, dtype=np.float32)
         out_buffer = np.zeros(self.block_frame, dtype=np.float32)
 
         while not self.stop:
-            # Check if there's enough data in the queue
+            event.wait(timeout=60.0)  # Wait for up to 1 second
+            if self.stop:
+                break  # If stop was called, exit the loop
             if audio_queue:
                 # Extract data from the queue
                 block = np.array([audio_queue.popleft() for _ in range(min(len(audio_queue), self.block_frame))], dtype=np.float32)
@@ -402,36 +402,10 @@ class RVCWrapper:
 
                 # Process in_buffer and send to ws_out
                 self.rvc_process(in_buffer, out_buffer)
-                send_to_ws(ws_out, out_buffer)
+                ws_out.append(out_buffer.copy())
 
-            # If the queue is empty, skip processing
-            else:
-                continue
+                if not audio_queue:
+                    event.clear()
                     
     def stop_stream(self):
         self.stop = True
-        
-if __name__ == "__main__":
-    import soundfile as sf
-    # vc = VCWrapper("FrierenFrierenv3_e150_s15000.pth")
-    # results = vc.rvc_process("elizabeth.wav")
-    # sf.write('class_test.wav', *results)
-    rvc = RVCWrapper()
-    rvc.initialize_rvc_realtime()
-    audio_queue = deque()
-    chunk_size = 10240
-    with sf.SoundFile("elizabeth.wav") as f:
-        while True:
-            chunk = f.read(chunk_size)
-            if len(chunk) == 0:
-                break
-            # Extend the deque with the chunk
-            audio_queue.extend(chunk)
-
-    # out_queue = []
-
-    # rvc.audio_stream(audio_queue, out_queue)
-    # print("Done")
-    # processed_audio = np.concatenate(out_queue)
-    # with sf.SoundFile('Final.wav', 'w', 24000, 1) as out_f:
-    #     out_f.write(processed_audio)
