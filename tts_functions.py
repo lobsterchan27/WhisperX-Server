@@ -1,4 +1,4 @@
-from tortoise import api_fast
+from tortoise.api_fast import TextToSpeech
 from tortoise.utils.text import split_and_recombine_text
 from tortoise.utils.audio import get_voices, load_audio
 
@@ -9,6 +9,7 @@ import pprint
 import pyaudio
 import numpy as np
 
+from queue import Queue
 from time import time
 from scipy.io.wavfile import write
 
@@ -19,24 +20,28 @@ last_latents = None
 
 
 def create_tts():
-    return api_fast.TextToSpeech(models_dir=MODEL_DIR, use_deepspeed=False, kv_cache=True, half=False, device='cuda')
+    return TextToSpeech(models_dir=MODEL_DIR,
+                        use_deepspeed=False,
+                        kv_cache=True,
+                        half=False,
+                        device='cuda')
 
 
-def load_or_generate_latents(tts: api_fast.TextToSpeech, voice, directory: str):
+def load_or_generate_latents(tts: TextToSpeech, voice, directory: str):
     global last_voice, last_latents
     if voice != last_voice:
         save_path = f'{directory}/{voice}/{voice}.pth'
+        print(f"Loading latents from: {save_path}")  # Add this line
         if os.path.exists(save_path):
             last_latents = torch.load(save_path)
         else:
             last_latents = generate_latents(tts, voice, directory)
         last_voice = voice
-    return last_latents, save_path
+    return last_latents
     
 
-def generate_latents(tts: api_fast.TextToSpeech, voice, directory: str):
+def generate_latents(tts: TextToSpeech, voice, directory: str):
     voices = get_voices([directory])
-    print(voices)  # Add this line
     selected_voice = voice.split(',')
     conds = []
     for voice in selected_voice:
@@ -50,7 +55,7 @@ def generate_latents(tts: api_fast.TextToSpeech, voice, directory: str):
     return conditioning_latents
 
 
-def save_audio(tts: api_fast.TextToSpeech, prompt, voice, resample=None):
+def save_audio(tts: TextToSpeech, prompt, voice, resample=None):
     output_dir = os.path.join(OUTPUT_DIR, voice)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -76,17 +81,17 @@ def resample_audio(audio, resample: int):
     return audio
 
 
-def generate_tts(tts: api_fast.TextToSpeech, prompt, voice):
-    conditioning_latents, _ = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
+def generate_tts(tts: TextToSpeech, prompt, voice):
+    conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
     start_time = time()
-    gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents, use_deterministic_seed=None)
+    gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
     end_time = time()
     audio = gen.squeeze(0).cpu()
     print("Time taken to generate the audio: ", end_time - start_time, "seconds")
     print("RTF: ", (end_time - start_time) / (audio.shape[1] / 24000))
     return audio
 
-def generate_tts_stream(tts, prompt, voice, audio_stream):
+def generate_tts_stream(tts: TextToSpeech, prompt, voice, audio_queue, save_path=None):
     # Process text
     if '|' in prompt:
         print("Found the '|' character in your text, which I will use as a cue for where to split it up. If this was not"
@@ -95,64 +100,68 @@ def generate_tts_stream(tts, prompt, voice, audio_stream):
     else:
         prompts = split_and_recombine_text(prompt)
 
-    conditioning_latents, _ = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
+    conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
+
+    audio_data = [] if save_path is not None else None
 
     for prompt in prompts:
-        gen = tts.tts_stream(prompt, voice_samples=None, conditioning_latents=conditioning_latents, use_deterministic_seed=None)
+        gen = tts.tts_stream(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
         for wav_chunk in gen:
-            audio_stream.write(wav_chunk)
+            cpu_chunk = wav_chunk.cpu()
+            if save_path is not None:
+                audio_data.append(cpu_chunk)
+            audio_queue.put(cpu_chunk.numpy().tobytes())
+    audio_queue.put(None)
 
-def play_audio(iobytes):
+    if save_path is not None:
+        audio_data = torch.cat(audio_data, dim=-1)
+        audio_data = audio_data.unsqueeze(0)
+        torchaudio.save('temp.wav', audio_data, 24000)
+
+import time
+def play_audio(audio_queue: Queue):
     # Initialize PyAudio
     p = pyaudio.PyAudio()
-
     # Open a new PyAudio stream outside the loop
     stream = p.open(format=pyaudio.paFloat32,
                     channels=1,
                     rate=24000,
                     output=True)
 
-    chunks = []
     while True:
-        # Check if the buffer is empty and print a debug message
-        if buffer.tell() == 0:
-            print("The buffer is currently empty.")
-
-        # Read the next chunk from the buffer
-        chunk = buffer.read()
-
-        # If the chunk is empty, break the loop
-        if not chunk:
+        chunk = audio_queue.get()
+        if chunk is None:
             break
+        stream.write(chunk)
 
-        # Convert the chunk to a numpy array and append it to the list
-        chunk = np.frombuffer(chunk, dtype=np.float32)
-        chunks.append(chunk)
 
-        # Play the chunk
-        stream.write(chunk.tobytes())
-
-    # Close the stream after the loop
+    # Clean up PyAudio
+    stream.stop_stream()
     stream.close()
-
-    # Concatenate all chunks
-    all_audio = np.concatenate(chunks)
-    
-    # Write the output to a WAV file
-    write("output.wav", 24000, all_audio)
-
-    # Terminate the PyAudio object
     p.terminate()
+
 
 if __name__=='__main__':
     import io
     import threading
+    import soundfile as sf
+    from rvc_pipe.rvc_infer import rvc_convert
+
     tts = create_tts()
-    prompt = "Hello, my name is Tortoise. I am a text-to-speech model."
+    prompt = "Hello, my name is Elizabeth. Saint take out the trash I don't have all day. Also when you're done with that I need you to sweep up the garage."
     voice = "reference"
-    buffer = io.BytesIO()
-    playback_thread = threading.Thread(target=play_audio, args=(buffer,))
-    playback_thread.start()
-    generate_tts_stream(tts, prompt, voice, buffer)
-    playback_thread.join()
-    buffer.close()
+    audio_queue = Queue()
+    generate_thread = threading.Thread(target=generate_tts_stream, args=(tts, prompt, voice, audio_queue, 'elizabeth'))
+    play_thread = threading.Thread(target=play_audio, args=(audio_queue,))
+
+    generate_thread.start()
+    play_thread.start()
+
+    # Wait for both threads to finish
+    generate_thread.join()
+    play_thread.join()
+
+    rvc_convert(model_path='models/rvc_models/FrierenFrierenv3_e150_s15000.pth',
+                input_path='elizabeth.wav')
+
+    
