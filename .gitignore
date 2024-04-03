@@ -162,6 +162,5 @@ download/**
 output/**
 models/**
 voices/**
-rvc/**
 
 .history/
