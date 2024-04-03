@@ -11,7 +11,7 @@ from concurrent.futures import as_completed
 
 from yt_dlp import YoutubeDL
 from fastapi import UploadFile
-from schema import RequestParam
+from schema import RequestParam, SavePath
 
 async def save_upload_file(upload_file: UploadFile) -> str:
     try:
@@ -41,31 +41,39 @@ def download_media(url, format, output_template, json=False):
         info_dict = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info_dict)
 
-    return filename
+    if json:
+        json_filename = filename.rsplit('.', 1)[0] + '.info.json'
+        return filename, json_filename
+    else:
+        return filename, None
 
 
-async def save_link(executor: ThreadPoolExecutor, url, param: RequestParam) -> str:
+async def save_link(executor: ThreadPoolExecutor, url, param: RequestParam) -> SavePath:
     """
     Download video, audio, and JSON from a given URL and save them in a folder.
 
     The folder and file structure is as follows:
-    /download/title/title.video
-    /download/title/title_audio.audio
+    /download/title/title.audio
+    /download/title/title_video.video (if param.get_video is True)
     /download/title/title.info.json
 
-    Returns the path to the folder containing the downloaded files.
+    The function submits tasks to download the audio and (optionally) video to the executor. It then waits for each task to complete and retrieves the results.
+
+    If param.get_video is True, a video file is downloaded, otherwise, no video file is downloaded.
+
+    Returns a SavePath object containing the paths to the downloaded audio, JSON, and (optionally) video files.
     """
 
     location = '%(title)s/%(title)s'
 
-    tasks = [executor.submit(download_media, url, 'bestaudio', f'{location}_audio.%(ext)s', True)]
-    if param.get_video:
-        tasks.append(executor.submit(download_media, url, 'bestvideo', f'{location}.%(ext)s'))
+    audio_task = executor.submit(download_media, url, 'bestaudio', f'{location}.%(ext)s', True)
+    video_task = executor.submit(download_media, url, 'bestvideo', f'{location}_video.%(ext)s') if param.get_video else None
 
-    results = [task.result() for task in as_completed(tasks)]
-    folder_path = os.path.dirname(results[0])
+    # Wait for all tasks to complete
+    audio_path, json_path = audio_task.result()
+    video_path = video_task.result()[0] if video_task else None
 
-    return folder_path
+    return SavePath(audio=audio_path, json=json_path, video=video_path)
 
 # To be refactored
 async def generate_storyboard(filename: str) -> str:
