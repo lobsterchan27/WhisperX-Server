@@ -9,7 +9,8 @@ from dataclasses import dataclass
 class RequestParam(BaseModel):
     language: str = None
     text2speech: bool = False
-    segment_audio: bool = False
+    segment_length: int = 30
+    minimum_interval: float = 0
     translate: bool = False
     get_video: bool = False
 
