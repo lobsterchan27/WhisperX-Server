@@ -35,6 +35,7 @@ def download_media(url, format, output_template, json=False):
         'restrictfilenames': True,
         'outtmpl': output_template,
         'writeinfojson': json,
+        'quiet': True
     }
 
     with YoutubeDL(ydl_opts) as ydl:
@@ -48,7 +49,7 @@ def download_media(url, format, output_template, json=False):
         return filename, None
 
 
-async def save_link(executor: ThreadPoolExecutor, url, param: RequestParam) -> SavePath:
+async def save_link(url, param: RequestParam) -> SavePath:
     """
     Download video, audio, and JSON from a given URL and save them in a folder.
 
@@ -76,7 +77,7 @@ async def save_link(executor: ThreadPoolExecutor, url, param: RequestParam) -> S
     return SavePath(audio=audio_path, json=json_path, video=video_path)
 
 # To be refactored
-async def generate_storyboard(filename: str) -> str:
+async def generate_storyboard(filename: str, param: RequestParam) -> str:
     thumb_dir = os.path.join(os.path.dirname(filename), 'thumb')
     os.makedirs(thumb_dir, exist_ok=True)
 
@@ -93,45 +94,68 @@ async def generate_storyboard(filename: str) -> str:
 
     cmd = [
         'ffmpeg', '-i', filename, '-vf', 
-        'select=\'gt(scene\,0.02)\',scale=-1:320,showinfo',
+        'select=\'gt(scene\,0.01)\',scale=-1:320,showinfo',
         '-f', 'null', '-'
     ]
     output = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-
-    # Parse the output to find the timestamps of the selected frames
-    timestamps = [float(m.group(1)) for m in re.finditer(r'pts_time:([0-9\.]+)', output.stdout.decode())]
-
-    # Filter the timestamps to keep only those where at least x seconds have passed since the last selected frame
     filtered_timestamps = []
     prev_timestamp = None
-    for timestamp in timestamps:
-        if prev_timestamp is None or timestamp - prev_timestamp >= 1:
+    for m in re.finditer(r'pts_time:([0-9\.]+)', output.stdout.decode()):
+        timestamp = float(m.group(1))
+        if prev_timestamp is None or timestamp - prev_timestamp >= param.minimum_interval:
             filtered_timestamps.append(timestamp)
             prev_timestamp = timestamp
+    
+    print('Original Filtered Timestamps:', filtered_timestamps)
 
-    # Determine the grid dimensions
-    num_frames = len(filtered_timestamps)
-    grid_size = math.sqrt(num_frames * aspect_ratio)
+    # Assume interval is given in seconds
+    interval = param.segment_length
+    # Create chunks of timestamps based on the interval
+    chunked_timestamps = []
+    current_chunk = []
+    current_interval_start = 0
 
-    # Round grid_rows down and grid_cols up to ensure enough cells
-    grid_rows = math.floor(grid_size)
-    grid_cols = math.ceil(num_frames / grid_rows)
+    for timestamp in filtered_timestamps:
+        if timestamp >= current_interval_start + interval:
+            if current_chunk:
+                chunked_timestamps.append(current_chunk)
+            current_chunk = []
+            current_interval_start += interval
+        current_chunk.append(timestamp)
 
-    # If not enough cells, increment grid_rows
-    if grid_rows * grid_cols < num_frames:
-        grid_rows += 1
+    # Add the last chunk if it exists
+    if current_chunk:
+        chunked_timestamps.append(current_chunk)
 
-    # Generate the thumbnail grid using the filtered timestamps
-    cmd = [
-        'ffmpeg', '-y', '-i', filename, '-vf',
-        f'select=\'gte(t\,{filtered_timestamps[0]-0.02})*lte(t\,{filtered_timestamps[0]+0.02})\'+' + '+'.join(f'gte(t\,{timestamp-0.02})*lte(t\,{timestamp+0.02})' for timestamp in filtered_timestamps[1:]) +
-        f',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
-        f'{output_path}_grid.webp'
-    ]
-    subprocess.run(cmd, check=True)
-    print(num_frames, grid_rows, grid_cols, aspect_ratio)
-    return output_path
+    print('Chunked Timestamps:', chunked_timestamps)
+
+    # Generate a storyboard for each chunk
+    for i, chunk in enumerate(chunked_timestamps):
+        print('chunked timestamps :', chunk)
+
+        # Determine the grid dimensions
+        num_frames = len(chunk)
+        grid_size = math.sqrt(num_frames * aspect_ratio)
+
+        # Round grid_rows down and grid_cols up to ensure enough cells
+        grid_rows = math.floor(grid_size)
+        grid_cols = math.ceil(num_frames / grid_rows)
+
+        # If not enough cells, increment grid_rows
+        if grid_rows * grid_cols < num_frames:
+            grid_rows += 1
+
+        # Generate the thumbnail grid using the filtered timestamps
+        cmd = [
+            'ffmpeg', '-y', '-i', filename, '-vf',
+            f'select=\'gte(t\,{chunk[0]-0.02})*lte(t\,{chunk[0]+0.02})\'+' + '+'.join(f'gte(t\,{timestamp-0.02})*lte(t\,{timestamp+0.02})' for timestamp in chunk[1:]) +
+            f',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
+            f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        print("thumbnail variables: ", num_frames, grid_rows, grid_cols, aspect_ratio)
+    return 'whatever'
 
 
 if __name__ == "__main__":
@@ -146,28 +170,30 @@ if __name__ == "__main__":
     import requests
 
     # The URL of the endpoint
-    url = "http://localhost:8127/api/transcribe/file"
+    url = "http://localhost:8127/api/transcribe/url"
 
     # The file to upload
-    file_path = "D:\Cool\WhisperX Server\download\Look_At_What_Happens_When_I_Heat_Treat_a_Metal_Lattice\Look_At_What_Happens_When_I_Heat_Treat_a_Metal_Lattice_audio.webm"
+    youtube_link = "https://www.youtube.com/shorts/bhIPto46Ecg"
 
     # The RequestParam data
     param_data = {
         "language": "en",
         "text2speech": "False",
-        "segment_audio": "False",
+        "segment_length": "15",
         "translate": "False",
-        "get_video": "False"
+        "get_video": "True",
+        "minimum_interval": "0.5"
     }
 
     # The multipart/form-data payload
     payload = {
-        "file": ("filename", open(file_path, 'rb')),
+        "url": (None, youtube_link),
         "language": (None, param_data["language"]),
         "text2speech": (None, param_data["text2speech"]),
-        "segment_audio": (None, param_data["segment_audio"]),
+        "segment_length": (None, param_data["segment_length"]),
         "translate": (None, param_data["translate"]),
-        "get_video": (None, param_data["get_video"])
+        "get_video": (None, param_data["get_video"]),
+        "minimum_interval": (None, param_data["minimum_interval"])
     }
 
     # Send the POST request
