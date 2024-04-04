@@ -214,7 +214,7 @@ class RVCWrapper:
             infer_wav = self._output_noise_reduction(infer_wav)
         
         if self.pconfig.rms_mix_rate < 1 and self.pconfig.function == "vc":
-            self.infer_wav = self.pconfig.volume_envelope_mixing(infer_wav)
+            self.infer_wav = self._volume_envelope_mixing(infer_wav)
             
         # SOLA algorithm from https://github.com/yxlllc/DDSP-SVC
         infer_wav = self._sola_algorithmn(infer_wav)
