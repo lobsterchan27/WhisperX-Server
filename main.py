@@ -1,16 +1,17 @@
 import os
+import uuid
+import asyncio
 import uvicorn
 import configparser
 
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form
 from pydantic import HttpUrl
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from audio_processor import AudioProcessor
 from schema import RequestParam
-from video_download import save_upload_file, save_link
+from video_download import save_upload_file, save_link, generate_storyboard
 from settings import HF_TOKEN
 
 import tts_functions
@@ -33,16 +34,16 @@ model_settings = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.executor = ThreadPoolExecutor(max_workers=5)
-    app.state.audio_processor = AudioProcessor(model_settings,
-                                 align=config.getboolean('Model Settings', 'align'),
-                                 diarization=config.getboolean('Model Settings', 'diarize'),
-                                 HF_TOKEN=HF_TOKEN)
-    # tts_functions.create_tts()
+    print("Starting up")
+    # app.state.audio_processor = AudioProcessor(model_settings,
+    #                              align=config.getboolean('Model Settings', 'align'),
+    #                              diarization=config.getboolean('Model Settings', 'diarize'),
+    #                              HF_TOKEN=HF_TOKEN)
+    # # tts_functions.create_tts()
     yield
-    app.state.audio_processor = None
-    app.state.executor.shutdown(wait=True)
-    app.state.audio_processor.clean_up()
+    print("Shutting down")
+    # app.state.audio_processor.clean_up()
+    # app.state.audio_processor = None
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
@@ -52,38 +53,68 @@ app = FastAPI(lifespan=lifespan)
 async def transcribe_file(file: UploadFile = File(...),
                           language: Optional[str] = Form(None),
                           text2speech: Optional[bool] = Form(False),
-                          segment_audio: Optional[bool] = Form(False),
+                          segment_length: Optional[int] = Form(False),
                           translate: Optional[bool] = Form(False),
                           get_video: Optional[bool] = Form(False)):
     param = RequestParam(language=language,
                          text2speech=text2speech,
-                         segment_audio=segment_audio,
+                         segment_length=segment_length,
                          translate=translate,
                          get_video=get_video)
     file_path = await save_upload_file(file)
-    result, _ = app.state.audio_processor.process(file_path, param)
-    return result
-
+    transcription = app.state.audio_processor.process(file_path, param)
+    return transcription
 
 @app.post("/api/transcribe/url")
-async def transcribe_url(url: HttpUrl,
-                         language: Optional[str] = None,
-                         text2speech: Optional[bool] = False,
-                         segment_audio: Optional[bool] = False,
-                         translate: Optional[bool] = False,
-                         get_video: Optional[bool] = False):
+async def transcribe_url(url: HttpUrl = Form(...),
+                         language: Optional[str] = Form(None),
+                         text2speech: Optional[bool] = Form(False),
+                         segment_length: Optional[int] = Form(False),
+                         translate: Optional[bool] = Form(False),
+                         get_video: Optional[bool] = Form(False)):
     param = RequestParam(language=language,
                          text2speech=text2speech,
-                         segment_audio=segment_audio,
+                         segment_length=segment_length,
                          translate=translate,
                          get_video=get_video)
-    file_path = await save_link(app, url)
-    result = app.state.audio_processor.process(file_path, param)
-    return result
+    file_path = await save_link(url, param)
+    storyboard = await generate_storyboard(file_path.video, param)
+    print(type(storyboard))
+    # result = app.state.audio_processor.process(file_path.audio, param)
+    return "result"
 
+#incomplete
+@app.get("/api/transcribe/stream")
+async def transcribe_url(
+    url: HttpUrl,
+    language: Optional[str] = Form(None),
+    text2speech: Optional[bool] = Form(False),
+    segment_length: Optional[bool] = Form(False),
+    translate: Optional[bool] = Form(False),
+    get_video: Optional[bool] = Form(False)):
+    params = RequestParam(language=language,
+                          text2speech=text2speech,
+                          segment_length=segment_length,
+                          translate=translate,
+                          get_video=get_video)
+    async def generate_chunks(url, **params):
+        save_path = await save_link(url, params)
+        storyboards = []
+        storyboards = await generate_storyboard(save_path)
+        result, _ = await asyncio.to_thread(app.state.audio_processor.process(file_path, params))
+        for i in range(10):
+            chunk = f"Chunk {i}"
+            yield chunk
+            await asyncio.sleep(1)  # Simulating asynchronous processing delay
+
+    chunks_generator = generate_chunks(file, **params)
 
 @app.post("/api/text2speech")
-def text2speech(text: str):
+async def text2speech(text: str):
+    return "Not implemented yet"
+
+@app.post("/api/rvc")
+async def rvc():
     return "Not implemented yet"
 
 
