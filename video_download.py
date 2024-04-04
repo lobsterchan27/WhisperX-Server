@@ -66,12 +66,12 @@ async def save_link(executor: ThreadPoolExecutor, url, param: RequestParam) -> S
 
     location = '%(title)s/%(title)s'
 
-    audio_task = executor.submit(download_media, url, 'bestaudio', f'{location}.%(ext)s', True)
-    video_task = executor.submit(download_media, url, 'bestvideo', f'{location}_video.%(ext)s') if param.get_video else None
+    audio_task = asyncio.create_task(asyncio.to_thread(download_media, url, 'bestaudio', f'{location}.%(ext)s', True))
+    video_task = asyncio.create_task(asyncio.to_thread(download_media, url, 'bestvideo', f'{location}_video.%(ext)s')) if param.get_video else None
 
     # Wait for all tasks to complete
-    audio_path, json_path = audio_task.result()
-    video_path = video_task.result()[0] if video_task else None
+    audio_path, json_path = await audio_task
+    video_path = (await video_task)[0] if video_task else None
 
     return SavePath(audio=audio_path, json=json_path, video=video_path)
 
