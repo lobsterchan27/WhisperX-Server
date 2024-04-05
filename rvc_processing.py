@@ -23,7 +23,7 @@ class VCWrapper:
         self.vc = VC(self.config)
         self.vc.get_vc(self.pconfig.model_path if model_path is None else model_path)
     
-    def rvc_process(
+    def vc_process(
         self,
         input_path,
         f0_up_key=None,
@@ -259,18 +259,18 @@ class RVCWrapper:
         self.input_wav_denoise[: -self.block_frame] = self.input_wav_denoise[
             self.block_frame :
         ].clone()
-        input_wav = input_wav[-self.sola_buffer_frame - self.block_frame :]
-        input_wav = self.tg(
-            input_wav.unsqueeze(0), input_wav.unsqueeze(0)
+        self.input_wav = self.input_wav[-self.sola_buffer_frame - self.block_frame :]
+        self.input_wav = self.tg(
+            self.input_wav.unsqueeze(0), self.input_wav.unsqueeze(0)
         ).squeeze(0)
-        input_wav[: self.sola_buffer_frame] *= self.fade_in_window
-        input_wav[: self.sola_buffer_frame] += (
+        self.input_wav[: self.sola_buffer_frame] *= self.fade_in_window
+        self.input_wav[: self.sola_buffer_frame] += (
             self.nr_buffer * self.fade_out_window
         )
-        self.input_wav_denoise[-self.block_frame :] = input_wav[
+        self.input_wav_denoise[-self.block_frame :] = self.input_wav[
             : self.block_frame
         ]
-        self.nr_buffer[:] = input_wav[self.block_frame :]
+        self.nr_buffer[:] = self.input_wav[self.block_frame :]
         self.input_wav_res[-self.block_frame_16k - 160 :] = self.resampler(
             self.input_wav_denoise[-self.block_frame - 2 * self.zc :]
         )[160:]
@@ -409,3 +409,19 @@ class RVCWrapper:
                     
     def stop_stream(self):
         self.stop = True
+
+if __name__ == "__main__":
+    rvc = RVCWrapper()
+    rvc.initialize_rvc_realtime()
+    audio_queue = deque()
+    import soundfile as sf
+    block_size=10240
+    with sf.SoundFile('temp.wav') as f:
+        for block in f.blocks(blocksize=block_size):
+            audio_queue.extend(block)
+    
+    outlist = []
+    rvc.audio_stream(audio_queue, outlist, threading.Event())
+    with sf.SoundFile('whatevers.wav', 'w', 24000, channels=1) as f:
+        for block in outlist:
+            f.write(block)
