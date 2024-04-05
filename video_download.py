@@ -6,6 +6,7 @@ import re
 import os
 import math
 
+
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 
@@ -77,7 +78,7 @@ async def save_link(url, param: RequestParam) -> SavePath:
     return SavePath(audio=audio_path, json=json_path, video=video_path)
 
 # To be refactored
-async def generate_storyboard(filename: str, param: RequestParam) -> str:
+async def generate_storyboards(filename: str, param: RequestParam) -> str:
     thumb_dir = os.path.join(os.path.dirname(filename), 'thumb')
     os.makedirs(thumb_dir, exist_ok=True)
 
@@ -94,11 +95,12 @@ async def generate_storyboard(filename: str, param: RequestParam) -> str:
 
     cmd = [
         'ffmpeg', '-i', filename, '-vf', 
-        'select=\'gt(scene\,0.01)\',scale=-1:320,showinfo',
+        'select=\'gt(scene\,0.02)\',scale=-1:320,showinfo',
         '-f', 'null', '-'
     ]
     output = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
+    # Checks minimum interval between timestamps to avoid generating too many thumbnails
     filtered_timestamps = []
     prev_timestamp = None
     for m in re.finditer(r'pts_time:([0-9\.]+)', output.stdout.decode()):
@@ -109,9 +111,9 @@ async def generate_storyboard(filename: str, param: RequestParam) -> str:
     
     print('Original Filtered Timestamps:', filtered_timestamps)
 
-    # Assume interval is given in seconds
-    interval = param.segment_length
+
     # Create chunks of timestamps based on the interval
+    interval = param.segment_length
     chunked_timestamps = []
     current_chunk = []
     current_interval_start = 0
@@ -129,33 +131,51 @@ async def generate_storyboard(filename: str, param: RequestParam) -> str:
         chunked_timestamps.append(current_chunk)
 
     print('Chunked Timestamps:', chunked_timestamps)
-
+    result = []
     # Generate a storyboard for each chunk
     for i, chunk in enumerate(chunked_timestamps):
-        print('chunked timestamps :', chunk)
+        print("Generating storyboard for chunk", i)
+        result.append(generate_storyboard(chunk, aspect_ratio, filename, output_path, i))
+    
+    return result
 
-        # Determine the grid dimensions
-        num_frames = len(chunk)
-        grid_size = math.sqrt(num_frames * aspect_ratio)
+def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
+    num_frames, grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
 
-        # Round grid_rows down and grid_cols up to ensure enough cells
-        grid_rows = math.floor(grid_size)
-        grid_cols = math.ceil(num_frames / grid_rows)
+    # Generate the thumbnail grid using the filtered timestamps
+    select_filters = [f'between(t\,{timestamp-0.02}\,{timestamp+0.02})' for timestamp in frames]
+    select_filter_str = '+'.join(select_filters)
 
-        # If not enough cells, increment grid_rows
-        if grid_rows * grid_cols < num_frames:
-            grid_rows += 1
+    cmd = [
+        'ffmpeg', '-y', '-i', filename, '-vf',
+        f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
+        f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    print("thumbnail variables: ", num_frames, grid_rows, grid_cols, aspect_ratio)
+    return f'{output_path}_grid_{i}.webp'
 
-        # Generate the thumbnail grid using the filtered timestamps
-        cmd = [
-            'ffmpeg', '-y', '-i', filename, '-vf',
-            f'select=\'gte(t\,{chunk[0]-0.02})*lte(t\,{chunk[0]+0.02})\'+' + '+'.join(f'gte(t\,{timestamp-0.02})*lte(t\,{timestamp+0.02})' for timestamp in chunk[1:]) +
-            f',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
-            f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        print("thumbnail variables: ", num_frames, grid_rows, grid_cols, aspect_ratio)
-    return 'whatever'
+
+def get_thumbnail_layout(num_frames, aspect_ratio):
+    # Calculate the desired grid size
+    desired_grid_size = math.sqrt(num_frames * aspect_ratio)
+
+    # Adjust the grid size to maintain the aspect ratio
+    grid_rows = max(1, math.floor(desired_grid_size))
+
+    # Adjust grid_rows and grid_cols until there are enough cells
+    while True:
+        grid_cols = max(1, math.ceil(num_frames / grid_rows))
+        if grid_rows * grid_cols >= num_frames:
+            break
+        grid_rows += 1
+
+    # If grid_cols is still too high, adjust grid_rows and grid_cols
+    if grid_cols > math.ceil(num_frames ** 0.5):
+        grid_cols = math.ceil(num_frames ** 0.5)
+        grid_rows = math.ceil(num_frames / grid_cols)
+
+    return num_frames, grid_rows, grid_cols, aspect_ratio
 
 
 if __name__ == "__main__":
@@ -179,10 +199,10 @@ if __name__ == "__main__":
     param_data = {
         "language": "en",
         "text2speech": "False",
-        "segment_length": "15",
+        "segment_length": "5",
         "translate": "False",
         "get_video": "True",
-        "minimum_interval": "0.5"
+        "minimum_interval": "0.0"
     }
 
     # The multipart/form-data payload
