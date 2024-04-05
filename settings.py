@@ -10,12 +10,13 @@ MODEL_DIR = os.getenv("MODEL_DIRECTORY")
 OUTPUT_DIR = os.getenv("OUTPUT_DIRECTORY")
 VOICES_DIRECTORY = os.getenv("VOICES_DIRECTORY")
 RVC_MODEL_DIR = os.getenv("weight_root")
+INDEX_DIR = os.getenv("index_root")
 
 class RVCSettings:
     def __init__(self):
         self.pth_path = os.path.join(RVC_MODEL_DIR, "FrierenFrierenv3_e150_s15000.pth")
-        self.index_path = "rvc/assets/indexes"
-        self.I_noise_reduce: bool = False
+        self.index_path = os.path.join(INDEX_DIR, "added_IVF3217_Flat_nprobe_1_FrierenFrierenv3_v2.index")
+        self.I_noise_reduce: bool = True
         self.O_noise_reduce: bool = False
         self.use_pv: bool = False
         self.pitch: int = 0
@@ -23,7 +24,7 @@ class RVCSettings:
         self.channels: int = 1
 
         self.threshold: int = -40
-        self.index_rate: float = 0.0
+        self.index_rate: float = 1
         self.crossfade_time: float = 0.05
         self.block_time: float = .5
         self.extra_time: float = 2.5
