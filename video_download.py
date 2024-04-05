@@ -108,9 +108,6 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
         if prev_timestamp is None or timestamp - prev_timestamp >= param.minimum_interval:
             filtered_timestamps.append(timestamp)
             prev_timestamp = timestamp
-    
-    print('Original Filtered Timestamps:', filtered_timestamps)
-
 
     # Create chunks of timestamps based on the interval
     interval = param.segment_length
@@ -130,11 +127,9 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     if current_chunk:
         chunked_timestamps.append(current_chunk)
 
-    print('Chunked Timestamps:', chunked_timestamps)
     result = []
     # Generate a storyboard for each chunk
     for i, chunk in enumerate(chunked_timestamps):
-        print("Generating storyboard for chunk", i)
         result.append(generate_storyboard(chunk, aspect_ratio, filename, output_path, i))
     
     return result
@@ -152,7 +147,6 @@ def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
         f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    print("thumbnail variables: ", num_frames, grid_rows, grid_cols, aspect_ratio)
     return f'{output_path}_grid_{i}.webp'
 
 
