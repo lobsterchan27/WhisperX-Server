@@ -85,6 +85,7 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     base_filename = os.path.splitext(os.path.basename(filename))[0]
     output_path = os.path.join(thumb_dir, base_filename)
 
+    #async implement here
     # Command to get the original video's resolution
     cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', filename]
     output = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -113,20 +114,19 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     interval = param.segment_length
     chunked_timestamps = []
     current_chunk = []
-    current_interval_start = 0
 
     for timestamp in filtered_timestamps:
-        if timestamp >= current_interval_start + interval:
-            if current_chunk:
-                chunked_timestamps.append(current_chunk)
+        if timestamp >= interval:
+            chunked_timestamps.append(current_chunk)
             current_chunk = []
-            current_interval_start += interval
+            interval += interval
         current_chunk.append(timestamp)
 
     # Add the last chunk if it exists
     if current_chunk:
         chunked_timestamps.append(current_chunk)
 
+    #implement async to generate storyboards simultaneously, currently blocked while waiting for ffmpeg to return results. possible semaphore needed
     result = []
     # Generate a storyboard for each chunk
     for i, chunk in enumerate(chunked_timestamps):
@@ -135,7 +135,7 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     return result
 
 def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
-    num_frames, grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
+    grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
 
     # Generate the thumbnail grid using the filtered timestamps
     select_filters = [f'between(t\,{timestamp-0.02}\,{timestamp+0.02})' for timestamp in frames]
@@ -169,7 +169,7 @@ def get_thumbnail_layout(num_frames, aspect_ratio):
         grid_cols = math.ceil(num_frames ** 0.5)
         grid_rows = math.ceil(num_frames / grid_cols)
 
-    return num_frames, grid_rows, grid_cols, aspect_ratio
+    return grid_rows, grid_cols, aspect_ratio
 
 
 if __name__ == "__main__":
@@ -214,4 +214,5 @@ if __name__ == "__main__":
     response = requests.post(url, files=payload)
 
     # Print the response
+    from pprint import pprint
     print(response.json())
