@@ -4,20 +4,18 @@ import asyncio
 import uvicorn
 import configparser
 
+from pprint import pprint
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
 
 from audio_processor import AudioProcessor
-from schema import RequestParam
-from video_download import save_upload_file, save_link, generate_storyboard
+from schema import RequestParam, MultipartResponse
+from video_download import save_upload_file, save_link, generate_storyboards
 from settings import HF_TOKEN
 
 import tts_functions
-
-
-
 
 
 config = configparser.ConfigParser()
@@ -26,24 +24,21 @@ model_settings = {
     "device": config.get('Model Settings', 'device', fallback='cuda'),
     "compute_type": config.get('Model Settings', 'compute_type', fallback='float32'),
     "language": config.get('Model Settings', 'language', fallback=None),
-    "whisper_arch": config.get('Model Settings', 'whisper_arch', fallback='large-v3'),
-    "asr_options": {
-        "word_timestamps": config.getboolean('Model Settings', 'word_timestamps', fallback=True)
-    },
+    "whisper_arch": config.get('Model Settings', 'whisper_arch', fallback='large-v3')
 }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up")
-    # app.state.audio_processor = AudioProcessor(model_settings,
-    #                              align=config.getboolean('Model Settings', 'align'),
-    #                              diarization=config.getboolean('Model Settings', 'diarize'),
-    #                              HF_TOKEN=HF_TOKEN)
-    # # tts_functions.create_tts()
+    app.state.audio_processor = AudioProcessor(model_settings,
+                                 align=config.getboolean('Model Settings', 'align'),
+                                 diarization=config.getboolean('Model Settings', 'diarization'),
+                                 HF_TOKEN=HF_TOKEN)
+    # tts_functions.create_tts()
     yield
     print("Shutting down")
-    # app.state.audio_processor.clean_up()
-    # app.state.audio_processor = None
+    app.state.audio_processor.clean_up(True)
+    app.state.audio_processor = None
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
@@ -78,10 +73,32 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          translate=translate,
                          get_video=get_video)
     file_path = await save_link(url, param)
-    storyboard = await generate_storyboard(file_path.video, param)
-    print(type(storyboard))
-    # result = app.state.audio_processor.process(file_path.audio, param)
-    return "result"
+    if param.get_video:
+        storyboards = await generate_storyboards(file_path.video, param)
+    transcript = await app.state.audio_processor.process(file_path.audio, param)
+
+    segments = transcript['segments']
+    chunked_segments = []
+    current_chunk = []
+    interval = param.segment_length
+
+    for segment in segments:
+        if segment['start'] >= interval:
+            chunked_segments.append(current_chunk)
+            current_chunk = []
+            interval += param.segment_length
+        current_chunk.append({key: segment[key] for key in segment if key != 'words'})
+
+    # Append the last chunk
+    if current_chunk:
+        chunked_segments.append([{key: segment[key] for key in segment if key != 'words'} for segment in current_chunk])
+
+    async def generate_data():
+        for chunk, storyboard in zip(chunked_segments, storyboards):
+            yield ("image/jpeg", storyboard)  # assuming storyboard is image data
+            yield ("application/json", {"Segments": chunk})
+
+    return MultipartResponse()(generate_data())
 
 #incomplete
 @app.get("/api/transcribe/stream")
@@ -100,7 +117,7 @@ async def transcribe_url(
     async def generate_chunks(url, **params):
         save_path = await save_link(url, params)
         storyboards = []
-        storyboards = await generate_storyboard(save_path)
+        storyboards = await generate_storyboards(save_path)
         result, _ = await asyncio.to_thread(app.state.audio_processor.process(file_path, params))
         for i in range(10):
             chunk = f"Chunk {i}"
