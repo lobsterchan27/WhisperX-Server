@@ -1,6 +1,7 @@
 import io
+import json
 
-from typing import Optional, Tuple, AsyncGenerator
+from typing import Optional, Tuple, AsyncGenerator, Any
 from pydantic import BaseModel
 from fastapi import Response
 from fastapi.responses import StreamingResponse
@@ -26,17 +27,21 @@ class MultipartResponse(Response):
     media_type = "multipart/form-data"
     boundary = "--bulk-data-boundary"
 
-    async def render(self, content: AsyncGenerator[Tuple[str, bytes], None]):
+    async def render(self, content: AsyncGenerator[Tuple[str, Any], None]):
         for data_type, data in content:
             yield (
                 f"{self.boundary}\r\n"
                 f"Content-Type: {data_type}\r\n\r\n"
             ).encode()
-            yield data
+            if data_type == "application/json":
+                yield json.dumps(data).encode()
+            else:
+                #testing/debug load actual binary data later
+                yield data.encode()
             yield "\r\n".encode()
         yield f"{self.boundary}--".encode()
 
-    def __call__(self, content: AsyncGenerator[Tuple[str, bytes], None]):
+    def __call__(self, content: AsyncGenerator[Tuple[str, Any], None]):
         return StreamingResponse(
             self.render(content),
             headers={
