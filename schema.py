@@ -15,6 +15,7 @@ class RequestParam(BaseModel):
     get_video: bool = False
     scene_threshold: Optional[float] = 0.02
     fixed_interval: Optional[float] = None
+    diarize: Optional[bool] = False
 
 class TTSParam(BaseModel):
     text: str
