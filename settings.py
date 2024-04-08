@@ -37,9 +37,10 @@ class RVCSettings:
 
 class VCSettings:
     def __init__(self):
-        self.model_path = os.path.join(RVC_MODEL_DIR, "FrierenFrierenv3_e150_s15000.pth")
+        self.model_path = "FrierenFrierenv3_e150_s15000.pth"
         self.f0_up_key=0
         self.input_path=None
+        self.orig_sr = 24000
         self.output_dir_path=None
         self._is_half="False"
         self.f0method="rmvpe"
