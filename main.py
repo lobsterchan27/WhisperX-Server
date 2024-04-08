@@ -7,8 +7,7 @@ import configparser
 import time
 
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, File, UploadFile, Form, Request
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
 from util import chunk_segments
@@ -44,6 +43,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    print(f"Processing time: {process_time}")
+    return response
 
 
 @app.post("/api/transcribe/file")
@@ -75,6 +81,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          translate=translate,
                          get_video=get_video)
     file_path = await save_link(url, param)
+
     tasks = [app.state.audio_processor.process(file_path.audio, param)]
     if param.get_video:
         tasks.append(generate_storyboards(file_path.video, param))
