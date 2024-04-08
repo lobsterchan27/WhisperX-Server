@@ -2,6 +2,7 @@ import whisperx
 import gc
 import torch
 import time
+import asyncio
 
 from schema import RequestParam
 
@@ -25,32 +26,41 @@ class AudioProcessor:
             self.load_diarization(HF_TOKEN, model_settings["device"])
             print("Diarization model load time: ", time.time() - start_time)
 
-    async def process(self, file: str, audio_params: RequestParam):
+    async def process(self, file: str, param: RequestParam):
         batch_size = 16
         audio = whisperx.load_audio(file)
 
         # Check task and language
-        self.set_task(audio_params.translate)
-        self.update_language(audio_params.language)
+        self.set_task(param.translate)
+        self.update_language(param.language)
 
         # Transcribe audio
         print("Transcribing audio...")
         start_time = time.time()
-        result = self.model.transcribe(audio, batch_size=batch_size)
+        tasks = [asyncio.to_thread(self.model.transcribe, audio, batch_size=batch_size)]
+
+        # Diarize audio
+        if param.diarize:
+            print("Diarizing audio...")
+            tasks.append(asyncio.to_thread(self.diarize_model, audio))
+
+        results = await asyncio.gather(*tasks)
         print("Transcription time: ", time.time() - start_time)
+
+        # Assign the results to the appropriate variables
+        result = results[0]
+        diarization = results[1] if param.diarize else None
 
         # Word alignment
         start_time = time.time()
-        result = whisperx.align(result["segments"], self.align_model, self.metadata, audio, device=self.device)
+        result = await asyncio.to_thread(whisperx.align, result["segments"], self.align_model, self.metadata, audio, device=self.device)
         print("Alignment time: ", time.time() - start_time)
 
-        # Diarization
-        start_time = time.time()
-        diarization = self.diarize_model(audio)
-        print("Diarization time: ", time.time() - start_time)
-
         # Assign speakers
-        result = whisperx.assign_word_speakers(diarization, result)
+        if param.diarize:
+            start_time = time.time()
+            result = whisperx.assign_word_speakers(diarization, result)
+            print("Speaker assignment time: ", time.time() - start_time)
         self.clean_up()
         return result
     
