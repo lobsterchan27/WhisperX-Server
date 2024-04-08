@@ -79,6 +79,7 @@ async def save_link(url, param: RequestParam) -> SavePath:
 
 # Generate storyboards from the given video file
 async def generate_storyboards(filename: str, param: RequestParam) -> str:
+    print("Generating storyboards...")
     thumb_dir = os.path.join(os.path.dirname(filename), 'thumb')
     os.makedirs(thumb_dir, exist_ok=True)
 
@@ -181,7 +182,8 @@ if __name__ == "__main__":
         "translate": "False",
         "get_video": "True",
         "minimum_interval": "0.0",
-        "scene_threshold": "0.02"
+        "scene_threshold": "0.02",
+        "diarize": "True"
     }
 
     # The multipart/form-data payload
@@ -193,7 +195,8 @@ if __name__ == "__main__":
         "translate": (None, param_data["translate"]),
         "get_video": (None, param_data["get_video"]),
         "minimum_interval": (None, param_data["minimum_interval"]),
-        "scene_threshold": (None, param_data["scene_threshold"])
+        "scene_threshold": (None, param_data["scene_threshold"]),
+        "diarize": (None, param_data["diarize"])
     }
 
     import httpx
