@@ -3,7 +3,6 @@ import json
 
 from typing import Optional, Tuple, AsyncGenerator, Any
 from pydantic import BaseModel
-from fastapi import Response
 from fastapi.responses import StreamingResponse
 from dataclasses import dataclass
 
@@ -14,6 +13,8 @@ class RequestParam(BaseModel):
     minimum_interval: float = 0
     translate: bool = False
     get_video: bool = False
+    scene_threshold: Optional[float] = 0.02
+    fixed_interval: Optional[float] = None
 
 class TTSParam(BaseModel):
     text: str
@@ -23,12 +24,12 @@ class TTSParam(BaseModel):
     seed: Optional[int] = None
     kv_cache: bool = True
 
-class MultipartResponse(Response):
+class MultipartResponse:
     media_type = "multipart/form-data"
     boundary = "--bulk-data-boundary"
 
-    async def render(self, content: AsyncGenerator[Tuple[str, Any], None]):
-        for data_type, data in content:
+    async def body_iterator(self, content: AsyncGenerator[Tuple[str, Any], None]):
+        async for data_type, data in content:
             yield (
                 f"{self.boundary}\r\n"
                 f"Content-Type: {data_type}\r\n\r\n"
@@ -43,11 +44,12 @@ class MultipartResponse(Response):
 
     def __call__(self, content: AsyncGenerator[Tuple[str, Any], None]):
         return StreamingResponse(
-            self.render(content),
+            self.body_iterator(content),
             headers={
                 "Content-Type": f"multipart/form-data; boundary={self.boundary[2:]}"
             },
         )
+
 
 @dataclass
 class SavePath:
