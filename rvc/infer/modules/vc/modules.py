@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 import numpy as np
 import soundfile as sf
 import torch
+import librosa
 from io import BytesIO
 
 from rvc.infer.lib.audio import load_audio, wav2
@@ -147,6 +148,7 @@ class VC:
         self,
         sid,
         input_audio_path,
+        orig_sr,
         f0_up_key,
         f0_file,
         f0_method,
@@ -165,7 +167,7 @@ class VC:
             if isinstance(input_audio_path, str):
                 audio = load_audio(input_audio_path, 16000)
             else:
-                audio = input_audio_path
+                audio = librosa.resample(input_audio_path, orig_sr=orig_sr, target_sr=16000)
             audio_max = np.abs(audio).max() / 0.95
             if audio_max > 1:
                 audio /= audio_max
