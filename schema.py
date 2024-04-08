@@ -17,9 +17,11 @@ class RequestParam(BaseModel):
     fixed_interval: Optional[float] = None
     diarize: Optional[bool] = False
 
-class TTSParam(BaseModel):
-    text: str
+class TTSRequest(BaseModel):
+    prompt: str
     voice: str
+    #below are not implemented yet.
+    sample_rate: int = 24000
     preset: str = 'ultra_fast'
     regenerate: Optional[str] = None
     seed: Optional[int] = None
