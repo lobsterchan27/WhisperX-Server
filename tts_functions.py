@@ -8,10 +8,13 @@ import torchaudio
 import os
 import pyaudio
 import numpy as np
+import soundfile as sf
 
+from io import BytesIO
 from queue import Queue
 from time import time
 from scipy.io.wavfile import write
+
 
 from settings import MODEL_DIR, OUTPUT_DIR, VOICES_DIRECTORY
 
@@ -86,9 +89,10 @@ def generate_tts(tts: TextToSpeech, prompt, voice):
     start_time = time()
     gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
     end_time = time()
-    audio = gen.squeeze(0).cpu()
+    audio = gen.squeeze().cpu().numpy()
     print("Time taken to generate the audio: ", end_time - start_time, "seconds")
-    print("RTF: ", (end_time - start_time) / (audio.shape[1] / 24000))
+    print("RTF: ", (end_time - start_time) / (audio.shape[0] / 24000))
+    sf.write('debug1.wav', audio, 24000)
     return audio
 
 def generate_tts_stream(tts: TextToSpeech,
@@ -149,6 +153,11 @@ def play_audio(audio_queue: deque):
     stream.close()
     p.terminate()
 
+def to_wav(audio, samplerate):
+    byte_io = BytesIO()
+    sf.write(byte_io, audio, samplerate, format='WAV')
+    byte_io.seek(0)
+    return byte_io.getvalue()
 
 if __name__=='__main__':
     import io
