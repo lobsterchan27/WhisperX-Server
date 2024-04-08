@@ -11,13 +11,15 @@ from fastapi import FastAPI, File, UploadFile, Form, Request
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
 from util import chunk_segments
+from fastapi.responses import Response
 
 from audio_processor import AudioProcessor
-from schema import RequestParam, MultipartResponse
+from schema import RequestParam, MultipartResponse, TTSRequest
 from video_download import save_upload_file, save_link, generate_storyboards
 from settings import HF_TOKEN
 
-import tts_functions
+from tts_functions import generate_tts, to_wav, create_tts
+from rvc_processing import VCWrapper
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -31,15 +33,15 @@ model_settings = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up")
-    app.state.audio_processor = AudioProcessor(model_settings,
-                                 align=config.getboolean('Model Settings', 'align'),
-                                 diarization=config.getboolean('Model Settings', 'diarization'),
-                                 HF_TOKEN=HF_TOKEN)
-    # tts_functions.create_tts()
+    # app.state.audio_processor = AudioProcessor(model_settings,
+    #                              align=config.getboolean('Model Settings', 'align'),
+    #                              diarization=config.getboolean('Model Settings', 'diarization'),
+    #                              HF_TOKEN=HF_TOKEN)
+    # app.state.tts = tts_functions.create_tts()
     yield
     print("Shutting down")
-    app.state.audio_processor.clean_up(True)
-    app.state.audio_processor = None
+    # app.state.audio_processor.clean_up(True)
+    # app.state.audio_processor = None
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
@@ -126,8 +128,13 @@ async def transcribe_url(
     chunks_generator = generate_chunks(file, **params)
 
 @app.post("/api/text2speech")
-async def text2speech(text: str):
-    return "Not implemented yet"
+async def text2speech(request: TTSRequest):
+    tts = create_tts()
+    vc = VCWrapper()
+    result = generate_tts(tts, request.prompt, request.voice)
+    result, samplerate = vc.vc_process(result)
+    result = to_wav(result, samplerate)
+    return Response(content=result, media_type="audio/wav")
 
 @app.post("/api/rvc")
 async def rvc():
