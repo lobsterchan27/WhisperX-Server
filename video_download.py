@@ -6,14 +6,17 @@ import re
 import os
 import math
 
-
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
-
+from util import chunk_segments, generate_filtered_timestamps
 from yt_dlp import YoutubeDL
 from fastapi import UploadFile
 from schema import RequestParam, SavePath
 
+
+def sanitize_filename(filename):
+    filename = re.sub(r'[\\/*?:"<>|]', "", filename)
+    return filename.replace(" ", "_")
+
+# Save to disk the uploaded file
 async def save_upload_file(upload_file: UploadFile) -> str:
     try:
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
@@ -25,10 +28,7 @@ async def save_upload_file(upload_file: UploadFile) -> str:
         print(f"Failed to save upload file: {e}")
         return None
 
-def sanitize_filename(filename):
-    filename = re.sub(r'[\\/*?:"<>|]', "", filename)
-    return filename.replace(" ", "_")
-
+# Download the media from the given URL
 def download_media(url, format, output_template, json=False):
     ydl_opts = {
         'format': format,
@@ -49,7 +49,7 @@ def download_media(url, format, output_template, json=False):
     else:
         return filename, None
 
-
+# Download and save the audio, video, and JSON files from the given URL
 async def save_link(url, param: RequestParam) -> SavePath:
     """
     Download video, audio, and JSON from a given URL and save them in a folder.
@@ -77,7 +77,7 @@ async def save_link(url, param: RequestParam) -> SavePath:
 
     return SavePath(audio=audio_path, json=json_path, video=video_path)
 
-# To be refactored
+# Generate storyboards from the given video file
 async def generate_storyboards(filename: str, param: RequestParam) -> str:
     thumb_dir = os.path.join(os.path.dirname(filename), 'thumb')
     os.makedirs(thumb_dir, exist_ok=True)
@@ -85,56 +85,50 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     base_filename = os.path.splitext(os.path.basename(filename))[0]
     output_path = os.path.join(thumb_dir, base_filename)
 
-    #async implement here
     # Command to get the original video's resolution
     cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', filename]
-    output = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    ffprobe_process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
+    # Command to extract the timestamps of the scene changes or fixed intervals
+    if param.scene_threshold and not param.fixed_interval:
+        cmd = [
+            'ffmpeg', '-i', filename, '-vf', 
+            f'select=\'gt(scene\,{param.scene_threshold})\',scale=-1:320,showinfo',
+            '-f', 'null', '-'
+        ]
+    elif param.fixed_interval:
+        cmd = [
+            'ffmpeg', '-i', filename, '-vf', 
+            f'select=\'not(mod(t\,{param.fixed_interval}))\',scale=-1:320,showinfo',
+            '-f', 'null', '-'
+        ]
+    ffmpeg_process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+
+    # Read ffprobe output
+    stdout, _ = await ffprobe_process.communicate()
 
     # Parse the output to find the original width and height
-    width, height = map(int, output.stdout.decode().strip().split('x'))
+    width, height = map(int, stdout.decode().strip().split('x'))
     aspect_ratio = width / height
 
-    cmd = [
-        'ffmpeg', '-i', filename, '-vf', 
-        'select=\'gt(scene\,0.02)\',scale=-1:320,showinfo',
-        '-f', 'null', '-'
-    ]
-    output = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # Read ffmpeg output
+    stdout, _ = await ffmpeg_process.communicate()
 
-    # Checks minimum interval between timestamps to avoid generating too many thumbnails
-    filtered_timestamps = []
-    prev_timestamp = None
-    for m in re.finditer(r'pts_time:([0-9\.]+)', output.stdout.decode()):
-        timestamp = float(m.group(1))
-        if prev_timestamp is None or timestamp - prev_timestamp >= param.minimum_interval:
-            filtered_timestamps.append(timestamp)
-            prev_timestamp = timestamp
+    # Generator to yield filtered timestamps based on the minimum interval
+    filtered_timestamps = generate_filtered_timestamps(stdout, param.minimum_interval)
 
-    # Create chunks of timestamps based on the interval
-    interval = param.segment_length
-    chunked_timestamps = []
-    current_chunk = []
+    # Chunk the timestamps into segments of length param.segment_length
+    segmented_timestamps = chunk_segments(filtered_timestamps, param.segment_length)
 
-    for timestamp in filtered_timestamps:
-        if timestamp >= interval:
-            chunked_timestamps.append(current_chunk)
-            current_chunk = []
-            interval += interval
-        current_chunk.append(timestamp)
-
-    # Add the last chunk if it exists
-    if current_chunk:
-        chunked_timestamps.append(current_chunk)
-
-    #implement async to generate storyboards simultaneously, currently blocked while waiting for ffmpeg to return results. possible semaphore needed
-    result = []
     # Generate a storyboard for each chunk
-    for i, chunk in enumerate(chunked_timestamps):
-        result.append(generate_storyboard(chunk, aspect_ratio, filename, output_path, i))
-    
-    return result
+    tasks = []
+    for i, chunk in enumerate(segmented_timestamps):
+        tasks.append(asyncio.create_task(generate_storyboard(chunk, aspect_ratio, filename, output_path, i)))
+    results = await asyncio.gather(*tasks)
+    return results
 
-def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
+# Generates each storyboard from the given timestamps
+async def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
     grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
 
     # Generate the thumbnail grid using the filtered timestamps
@@ -146,9 +140,9 @@ def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
         f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
         f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+    await process.wait()
     return f'{output_path}_grid_{i}.webp'
-
 
 def get_thumbnail_layout(num_frames, aspect_ratio):
     # Calculate the desired grid size
@@ -173,16 +167,6 @@ def get_thumbnail_layout(num_frames, aspect_ratio):
 
 
 if __name__ == "__main__":
-    # Run the save_link coroutine
-    # result = asyncio.run(save_link("https://www.youtube.com/shorts/W2xxT3b-4H0", RequestParam(language='en', get_video=True)))
-    # folder_name = os.path.basename(result)
-    # joined = os.path.join(result, folder_name)
-    # files = glob.glob(f"{joined}.*")
-    # if files:
-    #     asyncio.run(generate_storyboard(files[0]))
-
-    import requests
-
     # The URL of the endpoint
     url = "http://localhost:8127/api/transcribe/url"
 
@@ -196,7 +180,8 @@ if __name__ == "__main__":
         "segment_length": "5",
         "translate": "False",
         "get_video": "True",
-        "minimum_interval": "0.0"
+        "minimum_interval": "0.0",
+        "scene_threshold": "0.02"
     }
 
     # The multipart/form-data payload
@@ -207,12 +192,14 @@ if __name__ == "__main__":
         "segment_length": (None, param_data["segment_length"]),
         "translate": (None, param_data["translate"]),
         "get_video": (None, param_data["get_video"]),
-        "minimum_interval": (None, param_data["minimum_interval"])
+        "minimum_interval": (None, param_data["minimum_interval"]),
+        "scene_threshold": (None, param_data["scene_threshold"])
     }
 
-    # Send the POST request
-    response = requests.post(url, files=payload)
+    import httpx
+    timeout = httpx.Timeout(10, read=300)
 
-    # Print the response
-    from pprint import pprint
-    print(response.json())
+    with httpx.stream('POST', url, files=payload, timeout=timeout) as response:
+        for chunk in response.iter_raw():
+            if chunk:
+                print(chunk.decode(), flush=True)
