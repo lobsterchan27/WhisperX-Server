@@ -75,9 +75,12 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          translate=translate,
                          get_video=get_video)
     file_path = await save_link(url, param)
+    tasks = [app.state.audio_processor.process(file_path.audio, param)]
     if param.get_video:
-        storyboards = await generate_storyboards(file_path.video, param)
-    transcript = await app.state.audio_processor.process(file_path.audio, param)
+        tasks.append(generate_storyboards(file_path.video, param))
+    results = await asyncio.gather(*tasks)
+    transcript = results[0]
+    storyboards = results[1] if param.get_video else None
 
     segments = transcript['segments']
     transform_func = lambda segment: {key: segment[key] for key in segment if key != 'words'}
