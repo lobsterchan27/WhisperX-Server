@@ -1,14 +1,17 @@
 import os
 import uuid
+import json
 import asyncio
 import uvicorn
 import configparser
+import time
 
-from pprint import pprint
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import StreamingResponse
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
+from util import chunk_segments
 
 from audio_processor import AudioProcessor
 from schema import RequestParam, MultipartResponse
@@ -16,7 +19,6 @@ from video_download import save_upload_file, save_link, generate_storyboards
 from settings import HF_TOKEN
 
 import tts_functions
-
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -78,26 +80,13 @@ async def transcribe_url(url: HttpUrl = Form(...),
     transcript = await app.state.audio_processor.process(file_path.audio, param)
 
     segments = transcript['segments']
-    chunked_segments = []
-    current_chunk = []
-    interval = param.segment_length
-
-    for segment in segments:
-        if segment['start'] >= interval:
-            chunked_segments.append(current_chunk)
-            current_chunk = []
-            interval += param.segment_length
-        current_chunk.append({key: segment[key] for key in segment if key != 'words'})
-
-    # Append the last chunk
-    if current_chunk:
-        chunked_segments.append([{key: segment[key] for key in segment if key != 'words'} for segment in current_chunk])
+    transform_func = lambda segment: {key: segment[key] for key in segment if key != 'words'}
 
     async def generate_data():
-        for chunk, storyboard in zip(chunked_segments, storyboards):
-            yield ("image/jpeg", storyboard)  # assuming storyboard is image data
+        for storyboard, chunk in zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func)):
+            yield ("text/plain", storyboard)  # assuming storyboard is image data
             yield ("application/json", {"Segments": chunk})
-
+    
     return MultipartResponse()(generate_data())
 
 #incomplete
