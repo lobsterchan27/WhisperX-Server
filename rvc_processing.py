@@ -26,6 +26,7 @@ class VCWrapper:
     def vc_process(
         self,
         input_path,
+        orig_sr=None,
         f0_up_key=None,
         f0_method=None,
         file_index=None,
@@ -38,6 +39,7 @@ class VCWrapper:
         info, (tgt_sr, audio_opt) = self.vc.vc_single(
             sid=0,
             input_audio_path=input_path,
+            orig_sr=self.pconfig.orig_sr if orig_sr is None else orig_sr,
             f0_up_key=self.pconfig.f0_up_key if f0_up_key is None else f0_up_key,
             f0_file=None,
             f0_method=self.pconfig.f0method if f0_method is None else f0_method,
