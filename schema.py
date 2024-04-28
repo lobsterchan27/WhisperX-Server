@@ -1,5 +1,7 @@
 import io
+import os
 import json
+import aiofiles
 
 from typing import Optional, Tuple, AsyncGenerator, Any
 from pydantic import BaseModel
@@ -10,11 +12,11 @@ class RequestParam(BaseModel):
     language: str = None
     text2speech: bool = False
     segment_length: int = 30
+    scene_threshold: Optional[float] = 0.02
     minimum_interval: float = 0
+    fixed_interval: Optional[float] = None
     translate: bool = False
     get_video: bool = False
-    scene_threshold: Optional[float] = 0.02
-    fixed_interval: Optional[float] = None
     diarize: Optional[bool] = False
 
 class TTSRequest(BaseModel):
@@ -29,28 +31,33 @@ class TTSRequest(BaseModel):
 
 class MultipartResponse:
     media_type = "multipart/form-data"
-    boundary = "--bulk-data-boundary"
+    boundary = "bulk-data-boundary"
 
     async def body_iterator(self, content: AsyncGenerator[Tuple[str, Any], None]):
         async for data_type, data in content:
-            yield (
-                f"{self.boundary}\r\n"
-                f"Content-Type: {data_type}\r\n\r\n"
-            ).encode()
             if data_type == "application/json":
-                yield json.dumps(data).encode()
+                yield (
+                    f"--{self.boundary}\r\n"
+                    f"Content-Disposition: form-data; name=\"segments\"\r\n"
+                    f"Content-Type: {data_type}\r\n\r\n"
+                    f"{json.dumps(data)}\r\n"
+                ).encode()
             else:
-                #testing/debug load actual binary data later
-                yield data.encode()
-            yield "\r\n".encode()
-        yield f"{self.boundary}--".encode()
+                # Assume data is a file path
+                filename = os.path.basename(data)
+                async with aiofiles.open(data, 'rb') as f:
+                    file_data = await f.read()
+                yield f"--{self.boundary}\r\n".encode()
+                yield f"Content-Disposition: form-data; name=\"image\"; filename=\"{filename}\"\r\n".encode()
+                yield f"Content-Type: {data_type}\r\n\r\n".encode()
+                yield file_data
+                yield "\r\n".encode()
+        yield f"--{self.boundary}--\r\n".encode()
 
     def __call__(self, content: AsyncGenerator[Tuple[str, Any], None]):
         return StreamingResponse(
             self.body_iterator(content),
-            headers={
-                "Content-Type": f"multipart/form-data; boundary={self.boundary[2:]}"
-            },
+            media_type=f"{self.media_type}; boundary={self.boundary}"
         )
 
 
