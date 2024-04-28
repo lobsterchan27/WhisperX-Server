@@ -73,8 +73,9 @@ async def save_link(url, param: RequestParam) -> SavePath:
     # Wait for all tasks to complete
     audio_path, json_path = await audio_task
     video_path = (await video_task)[0] if video_task else None
+    base_filename = os.path.splitext(os.path.basename(audio_path))[0]
 
-    return SavePath(audio=audio_path, json=json_path, video=video_path)
+    return SavePath(basename=base_filename, audio=audio_path, json=json_path, video=video_path)
 
 # Generate storyboards from the given video file
 async def generate_storyboards(filename: str, param: RequestParam) -> str:
@@ -144,8 +145,6 @@ async def generate_storyboard(frames, width, height, filename, output_path, i = 
     else:
         scale_factor = initial_scale_factor
 
-    print("Scale factor:", scale_factor)
-
     # Generate the thumbnail grid using the filtered timestamps
     select_filters = [f'between(t\,{timestamp-0.02}\,{timestamp+0.02})' for timestamp in frames]
     select_filter_str = '+'.join(select_filters)
@@ -185,7 +184,7 @@ def get_thumbnail_layout(num_frames, aspect_ratio):
 
     return grid_rows, grid_cols, aspect_ratio
 
-
+# main function is purely for testing purposes only
 if __name__ == "__main__":
     # The URL of the endpoint
     url = "http://localhost:8127/api/transcribe/url"

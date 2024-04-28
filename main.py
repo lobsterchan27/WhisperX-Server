@@ -107,10 +107,11 @@ async def transcribe_url(url: HttpUrl = Form(...),
 
     async def generate_data():
         for storyboard, chunk in zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func)):
+            filename = os.path.basename(storyboard)
             yield ("image/webp", storyboard)
-            yield ("application/json", {"Segments": chunk})
+            yield ("application/json", {filename: chunk})
     
-    return MultipartResponse()(generate_data())
+    return MultipartResponse()(generate_data(), file_path.basename)
 
 #incomplete
 @app.get("/api/transcribe/stream")

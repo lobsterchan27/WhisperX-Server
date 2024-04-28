@@ -54,15 +54,18 @@ class MultipartResponse:
                 yield "\r\n".encode()
         yield f"--{self.boundary}--\r\n".encode()
 
-    def __call__(self, content: AsyncGenerator[Tuple[str, Any], None]):
+    def __call__(self, content: AsyncGenerator[Tuple[str, Any], None], custom_header: str):
+        headers = {"Base-Filename": custom_header}
         return StreamingResponse(
             self.body_iterator(content),
-            media_type=f"{self.media_type}; boundary={self.boundary}"
+            media_type=f"{self.media_type}; boundary={self.boundary}",
+            headers=headers
         )
 
 
 @dataclass
 class SavePath:
+    basename: str
     audio: str
     json: str
     video: str = None
