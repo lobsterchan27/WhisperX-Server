@@ -92,7 +92,6 @@ def generate_tts(tts: TextToSpeech, prompt, voice):
     audio = gen.squeeze().cpu().numpy()
     print("Time taken to generate the audio: ", end_time - start_time, "seconds")
     print("RTF: ", (end_time - start_time) / (audio.shape[0] / 24000))
-    sf.write('debug1.wav', audio, 24000)
     return audio
 
 def generate_tts_stream(tts: TextToSpeech,
@@ -181,5 +180,3 @@ if __name__=='__main__':
 
     rvc_convert(model_path='models/rvc_models/FrierenFrierenv3_e150_s15000.pth',
                 input_path='elizabeth.wav')
-
-    
