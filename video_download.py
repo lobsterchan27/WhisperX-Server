@@ -1,7 +1,6 @@
 import tempfile
 import asyncio
 import aiofiles
-import subprocess
 import re
 import os
 import math
@@ -110,7 +109,6 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
 
     # Parse the output to find the original width and height
     width, height = map(int, stdout.decode().strip().split('x'))
-    aspect_ratio = width / height
 
     # Read ffmpeg output
     stdout, _ = await ffmpeg_process.communicate()
@@ -124,13 +122,29 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     # Generate a storyboard for each chunk
     tasks = []
     for i, chunk in enumerate(segmented_timestamps):
-        tasks.append(asyncio.create_task(generate_storyboard(chunk, aspect_ratio, filename, output_path, i)))
+        tasks.append(asyncio.create_task(generate_storyboard(chunk, width, height, filename, output_path, i)))
     results = await asyncio.gather(*tasks)
     return results
 
+MAX_IMAGE_DIMENSION = 8192
 # Generates each storyboard from the given timestamps
-async def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0):
+async def generate_storyboard(frames, width, height, filename, output_path, i = 0):
+    aspect_ratio = width / height
     grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
+
+    # Calculate the expected width and height of the final image with initial scale factor
+    initial_scale_factor = 0.5
+    expected_width = width * initial_scale_factor * grid_cols
+    expected_height = height * initial_scale_factor * grid_rows
+
+    # Calculate the scaling factor to ensure the final image size does not exceed the maximum limit
+    if expected_width > MAX_IMAGE_DIMENSION or expected_height > MAX_IMAGE_DIMENSION:
+        # Calculate scale factor based on the larger dimension
+        scale_factor = (MAX_IMAGE_DIMENSION / max(expected_width, expected_height)) * initial_scale_factor
+    else:
+        scale_factor = initial_scale_factor
+
+    print("Scale factor:", scale_factor)
 
     # Generate the thumbnail grid using the filtered timestamps
     select_filters = [f'between(t\,{timestamp-0.02}\,{timestamp+0.02})' for timestamp in frames]
@@ -145,6 +159,11 @@ async def generate_storyboard(frames, aspect_ratio, filename, output_path, i = 0
     await process.wait()
     return f'{output_path}_grid_{i}.webp'
 
+
+
+# some issue with the algorithm. try to fix later(image is not very square at large numbers)
+# goal is to calculate grid such that the overall image is 1:1 aspect ratio while individual cells
+# minimize empty spaces
 def get_thumbnail_layout(num_frames, aspect_ratio):
     # Calculate the desired grid size
     desired_grid_size = math.sqrt(num_frames * aspect_ratio)
