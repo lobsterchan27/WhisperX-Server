@@ -33,15 +33,20 @@ model_settings = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up")
-    # app.state.audio_processor = AudioProcessor(model_settings,
-    #                              align=config.getboolean('Model Settings', 'align'),
-    #                              diarization=config.getboolean('Model Settings', 'diarization'),
-    #                              HF_TOKEN=HF_TOKEN)
-    # app.state.tts = tts_functions.create_tts()
+    app.state.audio_processor = AudioProcessor(model_settings,
+                                 align=config.getboolean('Model Settings', 'align'),
+                                 diarization=config.getboolean('Model Settings', 'diarization'),
+                                 HF_TOKEN=HF_TOKEN)
+    # start_time = time.time()
+    # app.state.tts = create_tts()
+    # print(f"Tortoise Start Time: {time.time() - start_time}")
+    # app.state.vc = VCWrapper()
     yield
     print("Shutting down")
-    # app.state.audio_processor.clean_up(True)
-    # app.state.audio_processor = None
+    app.state.audio_processor.clean_up(True)
+    app.state.audio_processor = None
+    # app.state.vc = None
+    # app.state.tts = None
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
@@ -74,12 +79,18 @@ async def transcribe_file(file: UploadFile = File(...),
 async def transcribe_url(url: HttpUrl = Form(...),
                          language: Optional[str] = Form(None),
                          text2speech: Optional[bool] = Form(False),
-                         segment_length: Optional[int] = Form(False),
+                         segment_length: Optional[int] = Form(30),
+                         scene_threshold: Optional[float] = Form(0.02),
+                         minimum_interval: Optional[float] = Form(0),
+                         fixed_interval: Optional[float] = Form(None),
                          translate: Optional[bool] = Form(False),
-                         get_video: Optional[bool] = Form(False)):
+                         get_video: Optional[bool] = Form(True)):
     param = RequestParam(language=language,
                          text2speech=text2speech,
                          segment_length=segment_length,
+                         scene_threshold=scene_threshold,
+                         minimum_interval=minimum_interval,
+                         fixed_interval=fixed_interval,
                          translate=translate,
                          get_video=get_video)
     file_path = await save_link(url, param)
@@ -96,7 +107,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
 
     async def generate_data():
         for storyboard, chunk in zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func)):
-            yield ("text/plain", storyboard)  # assuming storyboard is image data
+            yield ("image/webp", storyboard)
             yield ("application/json", {"Segments": chunk})
     
     return MultipartResponse()(generate_data())
@@ -127,12 +138,12 @@ async def transcribe_url(
 
     chunks_generator = generate_chunks(file, **params)
 
+# text2speech tortoise > rvc
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
-    tts = create_tts()
-    vc = VCWrapper()
-    result = generate_tts(tts, request.prompt, request.voice)
-    result, samplerate = vc.vc_process(result)
+    
+    result = generate_tts(app.state.tts, request.prompt, request.voice)
+    result, samplerate = app.state.vc.vc_process(result)
     result = to_wav(result, samplerate)
     return Response(content=result, media_type="audio/wav")
 
