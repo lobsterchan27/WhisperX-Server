@@ -21,7 +21,7 @@ class RequestParam(BaseModel):
 
 class TTSRequest(BaseModel):
     prompt: str
-    voice: str
+    voice: str = 'reference'
     #below are not implemented yet.
     sample_rate: int = 24000
     preset: str = 'ultra_fast'
