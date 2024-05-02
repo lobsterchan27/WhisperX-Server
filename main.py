@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
+async def process_time(request: Request, call_next):
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
@@ -143,7 +143,6 @@ async def transcribe_url(url: HttpUrl = Form(...),
 # text2speech tortoise > rvc
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
-    print(request)
     result = generate_tts(app.state.tts, request.prompt, request.voice)
     result, samplerate = app.state.vc.vc_process(result)
     result = to_wav(result, samplerate)
