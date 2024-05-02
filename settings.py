@@ -51,5 +51,4 @@ class VCSettings:
         self.resample_sr=None
         self.rms_mix_rate=1.0
         self.protect=0.33
-        self.verbose=False
-          
+        self.verbose=False      
