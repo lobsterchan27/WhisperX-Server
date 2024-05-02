@@ -37,16 +37,16 @@ async def lifespan(app: FastAPI):
                                  align=config.getboolean('Model Settings', 'align'),
                                  diarization=config.getboolean('Model Settings', 'diarization'),
                                  HF_TOKEN=HF_TOKEN)
-    # start_time = time.time()
-    # app.state.tts = create_tts()
-    # print(f"Tortoise Start Time: {time.time() - start_time}")
-    # app.state.vc = VCWrapper()
+    start_time = time.time()
+    app.state.tts = create_tts()
+    print(f"Tortoise Start Time: {time.time() - start_time}")
+    app.state.vc = VCWrapper()
     yield
     print("Shutting down")
-    app.state.audio_processor.clean_up(True)
+    app.state.audio_processor.clean_up(final=True)
     app.state.audio_processor = None
-    # app.state.vc = None
-    # app.state.tts = None
+    app.state.vc = None
+    app.state.tts = None
 
 app = FastAPI(lifespan=lifespan)
 #load tts model + rvc model
@@ -106,10 +106,10 @@ async def transcribe_url(url: HttpUrl = Form(...),
     transform_func = lambda segment: {key: segment[key] for key in segment if key != 'words'}
 
     async def generate_data():
-        for storyboard, chunk in zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func)):
+        for index, (storyboard, chunk) in enumerate(zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func))):
             filename = os.path.basename(storyboard)
             yield ("image/webp", storyboard)
-            yield ("application/json", {filename: chunk})
+            yield ("application/json", {str(index): {"filename": filename, "segments": chunk}})
     
     return MultipartResponse()(generate_data(), file_path.basename)
 
@@ -142,15 +142,17 @@ async def transcribe_url(
 # text2speech tortoise > rvc
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
-    
+    print(request)
     result = generate_tts(app.state.tts, request.prompt, request.voice)
     result, samplerate = app.state.vc.vc_process(result)
     result = to_wav(result, samplerate)
-    return Response(content=result, media_type="audio/wav")
+    headers = {'Voice': request.voice}
+    return Response(content=result, media_type="audio/wav", headers=headers)
 
 @app.post("/api/rvc")
 async def rvc():
     return "Not implemented yet"
+
 
 
 if __name__ == "__main__":
