@@ -3,7 +3,7 @@ import os
 import json
 import aiofiles
 
-from typing import Optional, Tuple, AsyncGenerator, Any
+from typing import Optional, Tuple, AsyncGenerator, Dict, Any
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from dataclasses import dataclass
@@ -54,8 +54,7 @@ class MultipartResponse:
                 yield "\r\n".encode()
         yield f"--{self.boundary}--\r\n".encode()
 
-    def __call__(self, content: AsyncGenerator[Tuple[str, Any], None], custom_header: str):
-        headers = {"Base-Filename": custom_header}
+    def __call__(self, content: AsyncGenerator[Tuple[str, Any], None], headers: Dict[str, str]):
         return StreamingResponse(
             self.body_iterator(content),
             media_type=f"{self.media_type}; boundary={self.boundary}",
