@@ -110,34 +110,35 @@ async def transcribe_url(url: HttpUrl = Form(...),
             filename = os.path.basename(storyboard)
             yield ("image/webp", storyboard)
             yield ("application/json", {str(index): {"filename": filename, "segments": chunk}})
-    
-    return MultipartResponse()(generate_data(), file_path.basename)
 
-#incomplete
-@app.get("/api/transcribe/stream")
-async def transcribe_url(
-    url: HttpUrl,
-    language: Optional[str] = Form(None),
-    text2speech: Optional[bool] = Form(False),
-    segment_length: Optional[bool] = Form(False),
-    translate: Optional[bool] = Form(False),
-    get_video: Optional[bool] = Form(False)):
-    params = RequestParam(language=language,
-                          text2speech=text2speech,
-                          segment_length=segment_length,
-                          translate=translate,
-                          get_video=get_video)
-    async def generate_chunks(url, **params):
-        save_path = await save_link(url, params)
-        storyboards = []
-        storyboards = await generate_storyboards(save_path)
-        result, _ = await asyncio.to_thread(app.state.audio_processor.process(file_path, params))
-        for i in range(10):
-            chunk = f"Chunk {i}"
-            yield chunk
-            await asyncio.sleep(1)  # Simulating asynchronous processing delay
+    headers = {"Base-Filename": file_path.basename}
+    return MultipartResponse()(generate_data(), headers)
 
-    chunks_generator = generate_chunks(file, **params)
+# #incomplete
+# @app.get("/api/transcribe/stream")
+# async def transcribe_url(
+#     url: HttpUrl,
+#     language: Optional[str] = Form(None),
+#     text2speech: Optional[bool] = Form(False),
+#     segment_length: Optional[bool] = Form(False),
+#     translate: Optional[bool] = Form(False),
+#     get_video: Optional[bool] = Form(False)):
+#     params = RequestParam(language=language,
+#                           text2speech=text2speech,
+#                           segment_length=segment_length,
+#                           translate=translate,
+#                           get_video=get_video)
+#     async def generate_chunks(url, **params):
+#         save_path = await save_link(url, params)
+#         storyboards = []
+#         storyboards = await generate_storyboards(save_path)
+#         result, _ = await asyncio.to_thread(app.state.audio_processor.process(file_path, params))
+#         for i in range(10):
+#             chunk = f"Chunk {i}"
+#             yield chunk
+#             await asyncio.sleep(1)  # Simulating asynchronous processing delay
+
+#     chunks_generator = generate_chunks(file, **params)
 
 # text2speech tortoise > rvc
 @app.post("/api/text2speech")
@@ -148,6 +149,24 @@ async def text2speech(request: TTSRequest):
     result = to_wav(result, samplerate)
     headers = {'Voice': request.voice}
     return Response(content=result, media_type="audio/wav", headers=headers)
+
+@app.post("/api/text2speech/whisperx")
+async def text2speech_whisperx(request: TTSRequest):
+    # Generate the TTS audio
+    result = generate_tts(app.state.tts, request.prompt, request.voice)
+    result, samplerate = app.state.vc.vc_process(result)
+    result = to_wav(result, samplerate)
+
+    # Process the audio with WhisperX
+    transcription = {'message': "WhisperX is not implemented yet"}
+
+    # Create the content generator
+    async def content():
+        yield "application/json", transcription
+        yield "audio/wav", result
+    
+    headers = {'Voice': request.voice}
+    return MultipartResponse()(content(), headers=headers)
 
 @app.post("/api/rvc")
 async def rvc():
