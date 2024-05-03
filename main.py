@@ -99,6 +99,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
     if param.get_video:
         tasks.append(generate_storyboards(file_path.video, param))
     results = await asyncio.gather(*tasks)
+    app.state.audio_processor.clean_up()
     transcript = results[0]
     storyboards = results[1] if param.get_video else None
 
@@ -141,10 +142,12 @@ async def transcribe_url(url: HttpUrl = Form(...),
 #     chunks_generator = generate_chunks(file, **params)
 
 # text2speech tortoise > rvc
+import torch
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
     result = generate_tts(app.state.tts, request.prompt, request.voice)
     result, samplerate = app.state.vc.vc_process(result)
+    app.state.audio_processor.clean_up()
     result = to_wav(result, samplerate)
     headers = {'Voice': request.voice}
     return Response(content=result, media_type="audio/wav", headers=headers)
@@ -155,6 +158,7 @@ async def text2speech_whisperx(request: TTSRequest):
     result = generate_tts(app.state.tts, request.prompt, request.voice)
     result, samplerate = app.state.vc.vc_process(result)
     result = to_wav(result, samplerate)
+    app.state.audio_processor.clean_up()
 
     # Process the audio with WhisperX
     transcription = {'message': "WhisperX is not implemented yet"}
