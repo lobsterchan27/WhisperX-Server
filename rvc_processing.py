@@ -17,7 +17,7 @@ from multiprocessing import Queue
 from collections import deque
 
 class VCWrapper:
-    def __init__(self, model_path = None):
+    def __init__(self, model_path = None, index_path = None):
         self.config = Config()
         self.pconfig = VCSettings()
         self.vc = VC(self.config)
