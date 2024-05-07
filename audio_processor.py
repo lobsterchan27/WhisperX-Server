@@ -26,6 +26,45 @@ class AudioProcessor:
             self.load_diarization(HF_TOKEN, model_settings["device"])
             print("Diarization model load time: ", time.time() - start_time)
 
+# Memory Issues with running in parallel
+    # async def process(self, file: str, param: RequestParam):
+    #     batch_size = 16
+    #     audio = whisperx.load_audio(file)
+
+    #     # Check task and language
+    #     self.set_task(param.translate)
+    #     self.update_language(param.language)
+
+    #     # Transcribe audio
+    #     print("Transcribing audio...")
+    #     start_time = time.time()
+    #     tasks = [asyncio.to_thread(self.model.transcribe, audio, batch_size=batch_size)]
+
+    #     # Diarize audio
+    #     if param.diarize:
+    #         print("Diarizing audio...")
+    #         tasks.append(asyncio.to_thread(self.diarize_model, audio))
+
+    #     results = await asyncio.gather(*tasks)
+    #     print("Transcription time: ", time.time() - start_time)
+
+    #     # Assign the results to the appropriate variables
+    #     result = results[0]
+    #     diarization = results[1] if param.diarize else None
+
+    #     # Word alignment
+    #     start_time = time.time()
+    #     result = await asyncio.to_thread(whisperx.align, result["segments"], self.align_model, self.metadata, audio, device=self.device)
+    #     print("Alignment time: ", time.time() - start_time)
+
+    #     # Assign speakers
+    #     if param.diarize:
+    #         start_time = time.time()
+    #         result = whisperx.assign_word_speakers(diarization, result)
+    #         print("Speaker assignment time: ", time.time() - start_time)
+    #     self.clean_up()
+    #     return result
+
     async def process(self, file: str, param: RequestParam):
         batch_size = 16
         audio = whisperx.load_audio(file)
@@ -37,32 +76,29 @@ class AudioProcessor:
         # Transcribe audio
         print("Transcribing audio...")
         start_time = time.time()
-        tasks = [asyncio.to_thread(self.model.transcribe, audio, batch_size=batch_size)]
-
-        # Diarize audio
-        if param.diarize:
-            print("Diarizing audio...")
-            tasks.append(asyncio.to_thread(self.diarize_model, audio))
-
-        results = await asyncio.gather(*tasks)
+        transcription_result = await asyncio.to_thread(self.model.transcribe, audio, batch_size=batch_size)
         print("Transcription time: ", time.time() - start_time)
 
-        # Assign the results to the appropriate variables
-        result = results[0]
-        diarization = results[1] if param.diarize else None
+        # Diarize audio if requested
+        diarization_result = None
+        if param.diarize:
+            print("Diarizing audio...")
+            start_time = time.time()
+            diarization_result = await asyncio.to_thread(self.diarize_model, audio)
+            print("Diarization time: ", time.time() - start_time)
 
         # Word alignment
         start_time = time.time()
-        result = await asyncio.to_thread(whisperx.align, result["segments"], self.align_model, self.metadata, audio, device=self.device)
+        transcription_result = await asyncio.to_thread(whisperx.align, transcription_result["segments"], self.align_model, self.metadata, audio, device=self.device)
         print("Alignment time: ", time.time() - start_time)
 
-        # Assign speakers
+        # Assign speakers if diarization was performed
         if param.diarize:
             start_time = time.time()
-            result = whisperx.assign_word_speakers(diarization, result)
+            transcription_result = whisperx.assign_word_speakers(diarization_result, transcription_result)
             print("Speaker assignment time: ", time.time() - start_time)
-        self.clean_up()
-        return result
+
+        return transcription_result
     
     def set_task(self, translate: bool):
         if translate:
@@ -87,12 +123,12 @@ class AudioProcessor:
         self.diarize_model = whisperx.DiarizationPipeline(use_auth_token=use_auth_token, device=device)
 
     def clean_up(self, final=False):
-        torch.cuda.empty_cache()
+        print("Cleaning up...")
+        torch.cuda.empty_cache()  # Frequent cache clearing
+        gc.collect()
         if final:
-            gc.collect()
-            if hasattr(self, 'model'):
-                del self.model
-            if hasattr(self, 'align_model'):
-                del self.align_model
-            if hasattr(self, 'diarize_model'):
-                del self.diarize_model
+            for model_attr in ['model', 'align_model', 'diarize_model']:
+                if hasattr(self, model_attr):
+                    delattr(self, model_attr)
+            torch.cuda.empty_cache()  # Additional clearing after deletion
+            gc.collect()  # Final collection to clean up any residual references

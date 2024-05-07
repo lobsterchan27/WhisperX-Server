@@ -1,4 +1,5 @@
 import os
+import gc
 import uuid
 import json
 import asyncio
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
     app.state.tts = create_tts()
     print(f"Tortoise Start Time: {time.time() - start_time}")
     app.state.vc = VCWrapper()
+    app.state.lock = asyncio.Lock()
     yield
     print("Shutting down")
     app.state.audio_processor.clean_up(final=True)
@@ -49,7 +51,7 @@ async def lifespan(app: FastAPI):
     app.state.tts = None
 
 app = FastAPI(lifespan=lifespan)
-#load tts model + rvc model
+
 @app.middleware("http")
 async def process_time(request: Request, call_next):
     start_time = time.time()
@@ -95,22 +97,24 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          get_video=get_video)
     file_path = await save_link(url, param)
 
-    tasks = [app.state.audio_processor.process(file_path.audio, param)]
-    if param.get_video:
-        tasks.append(generate_storyboards(file_path.video, param))
-    results = await asyncio.gather(*tasks)
-    app.state.audio_processor.clean_up()
-    transcript = results[0]
-    storyboards = results[1] if param.get_video else None
+    async with app.state.lock:
+        app.state.audio_processor.clean_up()
+        transcript = await app.state.audio_processor.process(file_path.audio, param)
+        app.state.audio_processor.clean_up()
+
+        storyboards = None
+        if param.get_video:
+            storyboards = await generate_storyboards(file_path.video, param)
 
     segments = transcript['segments']
     transform_func = lambda segment: {key: segment[key] for key in segment if key != 'words'}
 
     async def generate_data():
-        for index, (storyboard, chunk) in enumerate(zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func))):
-            filename = os.path.basename(storyboard)
-            yield ("image/webp", storyboard)
-            yield ("application/json", {str(index): {"filename": filename, "segments": chunk}})
+        if storyboards:
+            for index, (storyboard, chunk) in enumerate(zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func))):
+                filename = os.path.basename(storyboard)
+                yield ("image/webp", storyboard)
+                yield ("application/json", {str(index): {"filename": filename, "segments": chunk}})
 
     headers = {"Base-Filename": file_path.basename}
     return MultipartResponse()(generate_data(), headers)
@@ -142,12 +146,13 @@ async def transcribe_url(url: HttpUrl = Form(...),
 #     chunks_generator = generate_chunks(file, **params)
 
 # text2speech tortoise > rvc
-import torch
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
-    result = generate_tts(app.state.tts, request.prompt, request.voice)
-    result, samplerate = app.state.vc.vc_process(result)
-    app.state.audio_processor.clean_up()
+    async with app.state.lock:
+        app.state.audio_processor.clean_up()
+        result = generate_tts(app.state.tts, request.prompt, request.voice)
+        result, samplerate = app.state.vc.vc_process(result)
+        app.state.audio_processor.clean_up()
     result = to_wav(result, samplerate)
     headers = {'Voice': request.voice}
     return Response(content=result, media_type="audio/wav", headers=headers)
@@ -155,6 +160,7 @@ async def text2speech(request: TTSRequest):
 @app.post("/api/text2speech/whisperx")
 async def text2speech_whisperx(request: TTSRequest):
     # Generate the TTS audio
+    app.state.audio_processor.clean_up()
     result = generate_tts(app.state.tts, request.prompt, request.voice)
     result, samplerate = app.state.vc.vc_process(result)
     result = to_wav(result, samplerate)
