@@ -4,7 +4,9 @@ https://download.pytorch.org/whl/cu121/torchaudio-2.2.1%2Bcu121-cp310-cp310-win_
 git+https://github.com/m-bain/whisperx.git
 fastapi
 uvicorn
-python-multipart
 requests
 python-dotenv
 aiofiles
+yt-dlp
+tortoise-tts @ git+https://github.com/lobsterchan27/tortoise-tts.git
+pyaudio
