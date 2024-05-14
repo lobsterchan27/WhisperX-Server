@@ -1,4 +1,5 @@
 import os
+import configparser
 
 from dotenv import load_dotenv
 from multiprocessing import cpu_count
@@ -11,6 +12,12 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIRECTORY")
 VOICES_DIRECTORY = os.getenv("VOICES_DIRECTORY")
 RVC_MODEL_DIR = os.getenv("weight_root")
 INDEX_DIR = os.getenv("index_root")
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+
+HOSTNAME = config.get('Network', 'host')
+PORT = config.getint('Network', 'port')
 
 class RVCSettings:
     def __init__(self):
@@ -51,4 +58,11 @@ class VCSettings:
         self.resample_sr=None
         self.rms_mix_rate=1.0
         self.protect=0.33
-        self.verbose=False      
+        self.verbose=False
+
+class AudioProcessorSettings:
+    def __init__(self):
+        self.device = "cuda"
+        self.compute_type = "float32"
+        self.language = "en"
+        self.whisper_arch = "medium"
