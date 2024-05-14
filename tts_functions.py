@@ -90,9 +90,13 @@ def generate_tts(tts: TextToSpeech, prompt, voice):
     gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
     end_time = time()
     audio = gen.squeeze().cpu().numpy()
+    duration = audio.shape[0] / 24000  # Assuming a sample rate of 24,000 Hz
+
     print("Time taken to generate the audio: ", end_time - start_time, "seconds")
-    print("RTF: ", (end_time - start_time) / (audio.shape[0] / 24000))
-    return audio
+    print("RTF: ", (end_time - start_time) / duration)
+    print("Length of the audio: ", duration, "seconds")
+
+    return audio, duration  # Return both the audio array and its duration
 
 def generate_tts_stream(tts: TextToSpeech,
                         prompt,
