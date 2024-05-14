@@ -5,65 +5,59 @@ import time
 import asyncio
 
 from schema import RequestParam
+from settings import AudioProcessorSettings
+
+from settings import HF_TOKEN
 
 class AudioProcessor:
-    def __init__(self, model_settings, align=False, diarization=False, HF_TOKEN=None):
+    def __init__(self, model_settings = AudioProcessorSettings):
+        self.model_settings = model_settings
         self.model = None
         self.align_model = None
         self.diarize_model = None
+        self.diarize_token = HF_TOKEN
         self.metadata = None
-        self.device = 'cuda'
-        
+
+        self.device = model_settings.device
+        self.compute_type = model_settings.compute_type
+        self.language = model_settings.language
+        self.whisper_arch = model_settings.whisper_arch
+
+    def load_whisperx(self):
         start_time = time.time()
-        self.load_whisperx(model_settings)
+        self.model = whisperx.load_model(device=self.device,
+                                    compute_type=self.compute_type,
+                                    language=self.language,
+                                    whisper_arch=self.whisper_arch)
         print("Whisperx model load time: ", time.time() - start_time)
-        if align:
-            start_time = time.time()
-            self.load_align(model_settings["language"], model_settings["device"])
-            print("Align model load time: ", time.time() - start_time)
-        if diarization:
-            start_time = time.time()
-            self.load_diarization(HF_TOKEN, model_settings["device"])
-            print("Diarization model load time: ", time.time() - start_time)
 
-# Memory Issues with running in parallel
-    # async def process(self, file: str, param: RequestParam):
-    #     batch_size = 16
-    #     audio = whisperx.load_audio(file)
+    def load_align(self):
+        start_time = time.time()
+        self.align_model, self.metadata = whisperx.load_align_model(language_code=self.language, device=self.device)
+        print("Align model load time: ", time.time() - start_time)
 
-    #     # Check task and language
-    #     self.set_task(param.translate)
-    #     self.update_language(param.language)
+    def load_diarization(self):
+        start_time = time.time()
+        self.diarize_model = whisperx.DiarizationPipeline(use_auth_token=self.diarize_token, device=self.device)
+        print("Diarization model load time: ", time.time() - start_time)
 
-    #     # Transcribe audio
-    #     print("Transcribing audio...")
-    #     start_time = time.time()
-    #     tasks = [asyncio.to_thread(self.model.transcribe, audio, batch_size=batch_size)]
+    def unload_whisperx(self):
+        if self.model is not None:
+            del self.model
+            torch.cuda.empty_cache()
+            gc.collect()
 
-    #     # Diarize audio
-    #     if param.diarize:
-    #         print("Diarizing audio...")
-    #         tasks.append(asyncio.to_thread(self.diarize_model, audio))
+    def unload_align(self):
+        if self.align_model is not None:
+            del self.align_model
+            torch.cuda.empty_cache()
+            gc.collect()
 
-    #     results = await asyncio.gather(*tasks)
-    #     print("Transcription time: ", time.time() - start_time)
-
-    #     # Assign the results to the appropriate variables
-    #     result = results[0]
-    #     diarization = results[1] if param.diarize else None
-
-    #     # Word alignment
-    #     start_time = time.time()
-    #     result = await asyncio.to_thread(whisperx.align, result["segments"], self.align_model, self.metadata, audio, device=self.device)
-    #     print("Alignment time: ", time.time() - start_time)
-
-    #     # Assign speakers
-    #     if param.diarize:
-    #         start_time = time.time()
-    #         result = whisperx.assign_word_speakers(diarization, result)
-    #         print("Speaker assignment time: ", time.time() - start_time)
-    #     self.clean_up()
-    #     return result
+    def unload_diarization(self):
+        if self.diarize_model is not None:
+            del self.diarize_model
+            torch.cuda.empty_cache()
+            gc.collect()
 
     async def process(self, file: str, param: RequestParam):
         batch_size = 16
@@ -100,6 +94,13 @@ class AudioProcessor:
 
         return transcription_result
     
+    # For use with TTS functions
+    def alignment(self, segments, audio):
+        start_time = time.time()
+        results = whisperx.align(segments, self.align_model, self.metadata, audio, device=self.device)
+        print("Alignment time: ", time.time() - start_time)
+        return results
+    
     def set_task(self, translate: bool):
         if translate:
             self.model.task = 'translate'
@@ -109,18 +110,6 @@ class AudioProcessor:
     def update_language(self, language: str):
         if language:
             self.model.language = language
-
-    def load_whisperx(self, model_settings: dict):
-        self.model = whisperx.load_model(device=model_settings["device"],
-                                    compute_type=model_settings["compute_type"],
-                                    language=model_settings["language"],
-                                    whisper_arch=model_settings["whisper_arch"])
-
-    def load_align(self, language_code: str, device: str):
-        self.align_model, self.metadata = whisperx.load_align_model(language_code=language_code, device=device)
-
-    def load_diarization(self, use_auth_token: str, device: str):
-        self.diarize_model = whisperx.DiarizationPipeline(use_auth_token=use_auth_token, device=device)
 
     def clean_up(self, final=False):
         print("Cleaning up...")
