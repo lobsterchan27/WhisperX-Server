@@ -7,37 +7,30 @@ import uvicorn
 import configparser
 import time
 
+from settings import HOSTNAME, PORT, AudioProcessorSettings
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form, Request
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
-from util import chunk_segments
+from util import chunk_segments, prepare_for_align
 from fastapi.responses import Response
 
 from audio_processor import AudioProcessor
 from schema import RequestParam, MultipartResponse, TTSRequest
 from video_download import save_upload_file, save_link, generate_storyboards
-from settings import HF_TOKEN
 
 from tts_functions import generate_tts, to_wav, create_tts
 from rvc_processing import VCWrapper
 
 config = configparser.ConfigParser()
 config.read('config.ini')
-model_settings = {
-    "device": config.get('Model Settings', 'device', fallback='cuda'),
-    "compute_type": config.get('Model Settings', 'compute_type', fallback='float32'),
-    "language": config.get('Model Settings', 'language', fallback=None),
-    "whisper_arch": config.get('Model Settings', 'whisper_arch', fallback='large-v3')
-}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up")
-    app.state.audio_processor = AudioProcessor(model_settings,
-                                 align=config.getboolean('Model Settings', 'align'),
-                                 diarization=config.getboolean('Model Settings', 'diarization'),
-                                 HF_TOKEN=HF_TOKEN)
+    app.state.audio_processor = AudioProcessor(model_settings=AudioProcessorSettings())
+    app.state.audio_processor.load_whisperx()
+    app.state.audio_processor.load_align()
     start_time = time.time()
     app.state.tts = create_tts()
     print(f"Tortoise Start Time: {time.time() - start_time}")
@@ -145,7 +138,34 @@ async def transcribe_url(url: HttpUrl = Form(...),
 
 #     chunks_generator = generate_chunks(file, **params)
 
-# text2speech tortoise > rvc
+@app.post("/api/text2speech/align")
+async def text2speech(request: TTSRequest):
+
+    async with app.state.lock:
+        app.state.audio_processor.clean_up()
+        result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
+        result, samplerate = app.state.vc.vc_process(result)
+        app.state.audio_processor.clean_up()
+
+        segments = [{
+            'start': 0.0,
+            'end': duration,
+            'text': request.prompt
+        }]
+        segments = app.state.audio_processor.alignment(segments, prepare_for_align(result))
+        app.state.audio_processor.clean_up()
+
+    from pprint import pprint
+    pprint(segments['segments'])
+    result = to_wav(result, samplerate)
+
+    async def generate_data():
+        yield ("audio/wav", result)
+        yield ("application/json", segments)
+        
+    headers = {'Voice': request.voice}
+    return MultipartResponse()(generate_data(), headers)
+
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
     async with app.state.lock:
@@ -156,26 +176,6 @@ async def text2speech(request: TTSRequest):
     result = to_wav(result, samplerate)
     headers = {'Voice': request.voice}
     return Response(content=result, media_type="audio/wav", headers=headers)
-
-@app.post("/api/text2speech/whisperx")
-async def text2speech_whisperx(request: TTSRequest):
-    # Generate the TTS audio
-    app.state.audio_processor.clean_up()
-    result = generate_tts(app.state.tts, request.prompt, request.voice)
-    result, samplerate = app.state.vc.vc_process(result)
-    result = to_wav(result, samplerate)
-    app.state.audio_processor.clean_up()
-
-    # Process the audio with WhisperX
-    transcription = {'message': "WhisperX is not implemented yet"}
-
-    # Create the content generator
-    async def content():
-        yield "application/json", transcription
-        yield "audio/wav", result
-    
-    headers = {'Voice': request.voice}
-    return MultipartResponse()(content(), headers=headers)
 
 @app.post("/api/rvc")
 async def rvc():
