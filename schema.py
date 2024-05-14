@@ -2,7 +2,9 @@ import io
 import os
 import json
 import aiofiles
+import mimetypes
 
+from datetime import datetime
 from typing import Optional, Tuple, AsyncGenerator, Dict, Any
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
@@ -44,9 +46,17 @@ class MultipartResponse:
                 ).encode()
             else:
                 # Assume data is a file path
-                filename = os.path.basename(data)
-                async with aiofiles.open(data, 'rb') as f:
-                    file_data = await f.read()
+                if isinstance(data, str) and os.path.isfile(data):
+                    # Data is a file path
+                    filename = os.path.basename(data)
+                    async with aiofiles.open(data, 'rb') as f:
+                        file_data = await f.read()
+                else:
+                    # Assume data is direct file data
+                    ext = mimetypes.guess_extension(data_type) or ".bin"
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    filename = f"{timestamp}.{ext}"
+                    file_data = data
                 yield f"--{self.boundary}\r\n".encode()
                 yield f"Content-Disposition: form-data; name=\"image\"; filename=\"{filename}\"\r\n".encode()
                 yield f"Content-Type: {data_type}\r\n\r\n".encode()
