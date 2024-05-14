@@ -1,4 +1,5 @@
 import re
+import numpy as np
 
 def chunk_segments(segments, segment_length, value_func=None, transform_func=None):
     current_chunk = []
@@ -22,3 +23,7 @@ def generate_filtered_timestamps(stdout, minimum_interval):
         if prev_timestamp is None or timestamp - prev_timestamp >= minimum_interval:
             yield timestamp
             prev_timestamp = timestamp
+
+# Prepare rvc output for use with alignment
+def prepare_for_align(audio):
+    return audio.astype(np.float32) / 32768.0
