@@ -144,6 +144,7 @@ async def text2speech(request: TTSRequest):
     async with app.state.lock:
         app.state.audio_processor.clean_up()
         result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
+        app.state.audio_processor.clean_up()
         result, samplerate = app.state.vc.vc_process(result)
         app.state.audio_processor.clean_up()
 
@@ -154,14 +155,11 @@ async def text2speech(request: TTSRequest):
         }]
         segments = app.state.audio_processor.alignment(segments, prepare_for_align(result))
         app.state.audio_processor.clean_up()
-
-    from pprint import pprint
-    pprint(segments['segments'])
     result = to_wav(result, samplerate)
 
     async def generate_data():
+        yield ("application/json", segments['segments'])
         yield ("audio/wav", result)
-        yield ("application/json", segments)
         
     headers = {'Voice': request.voice}
     return MultipartResponse()(generate_data(), headers)
@@ -170,7 +168,8 @@ async def text2speech(request: TTSRequest):
 async def text2speech(request: TTSRequest):
     async with app.state.lock:
         app.state.audio_processor.clean_up()
-        result = generate_tts(app.state.tts, request.prompt, request.voice)
+        result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
+        app.state.audio_processor.clean_up()
         result, samplerate = app.state.vc.vc_process(result)
         app.state.audio_processor.clean_up()
     result = to_wav(result, samplerate)
