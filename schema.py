@@ -58,7 +58,7 @@ class MultipartResponse:
                     filename = f"{timestamp}.{ext}"
                     file_data = data
                 yield f"--{self.boundary}\r\n".encode()
-                yield f"Content-Disposition: form-data; name=\"image\"; filename=\"{filename}\"\r\n".encode()
+                yield f"Content-Disposition: form-data; name=\"{data_type}\"; filename=\"{filename}\"\r\n".encode()
                 yield f"Content-Type: {data_type}\r\n\r\n".encode()
                 yield file_data
                 yield "\r\n".encode()
