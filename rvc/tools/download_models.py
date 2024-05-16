@@ -18,17 +18,17 @@ def dl_model(link, model_name, dir_name):
 
 if __name__ == "__main__":
     print("Downloading hubert_base.pt...")
-    dl_model(RVC_DOWNLOAD_LINK, "hubert_base.pt", BASE_DIR / "assets/hubert")
+    dl_model(RVC_DOWNLOAD_LINK, "hubert_base.pt", BASE_DIR / "rvc/assets/hubert")
     print("Downloading rmvpe.pt...")
-    dl_model(RVC_DOWNLOAD_LINK, "rmvpe.pt", BASE_DIR / "assets/rmvpe")
+    dl_model(RVC_DOWNLOAD_LINK, "rmvpe.pt", BASE_DIR / "rvc/assets/rmvpe")
     print("Downloading vocals.onnx...")
     dl_model(
         RVC_DOWNLOAD_LINK + "uvr5_weights/onnx_dereverb_By_FoxJoy/",
         "vocals.onnx",
-        BASE_DIR / "assets/uvr5_weights/onnx_dereverb_By_FoxJoy",
+        BASE_DIR / "rvc/assets/uvr5_weights/onnx_dereverb_By_FoxJoy",
     )
 
-    rvc_models_dir = BASE_DIR / "assets/pretrained"
+    rvc_models_dir = BASE_DIR / "rvc/assets/pretrained"
 
     print("Downloading pretrained models:")
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
         print(f"Downloading {model}...")
         dl_model(RVC_DOWNLOAD_LINK + "pretrained/", model, rvc_models_dir)
 
-    rvc_models_dir = BASE_DIR / "assets/pretrained_v2"
+    rvc_models_dir = BASE_DIR / "rvc/assets/pretrained_v2"
 
     print("Downloading pretrained models v2:")
 
@@ -60,7 +60,7 @@ if __name__ == "__main__":
 
     print("Downloading uvr5_weights:")
 
-    rvc_models_dir = BASE_DIR / "assets/uvr5_weights"
+    rvc_models_dir = BASE_DIR / "rvc/assets/uvr5_weights"
 
     model_names = [
         "HP2-%E4%BA%BA%E5%A3%B0vocals%2B%E9%9D%9E%E4%BA%BA%E5%A3%B0instrumentals.pth",

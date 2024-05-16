@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import shutil
 
 load_dotenv()
+load_dotenv("sha256.env")
 
 os.environ["OMP_NUM_THREADS"] = "4"
 if sys.platform == "darwin":
@@ -75,24 +76,21 @@ if __name__ == "__main__":
     import json
     import multiprocessing
     import re
-    import threading
     import time
-    import traceback
     from multiprocessing import Queue, cpu_count
-    from queue import Empty
 
     import librosa
-    from tools.torchgate import TorchGate
+    from rvc.infer.modules.gui import TorchGate
     import numpy as np
-    import PySimpleGUI as sg
+    import FreeSimpleGUI as sg
     import sounddevice as sd
     import torch
     import torch.nn.functional as F
     import torchaudio.transforms as tat
 
-    import rvc.tools.rvc_for_realtime as rvc_for_realtime
-    from rvc.i18n.i18n import I18nAuto
-    from rvc.configs.config import Config
+    import rvc.infer.lib.rtrvc as rtrvc
+    from i18n.i18n import I18nAuto
+    from configs.config import Config
 
     i18n = I18nAuto()
 
@@ -107,13 +105,16 @@ if __name__ == "__main__":
     opt_q = Queue()
     n_cpu = min(cpu_count(), 8)
     for _ in range(n_cpu):
-        Harvest(inp_q, opt_q).start()
+        p = Harvest(inp_q, opt_q)
+        p.daemon = True
+        p.start()
 
     class GUIConfig:
         def __init__(self) -> None:
             self.pth_path: str = ""
             self.index_path: str = ""
             self.pitch: int = 0
+            self.formant: float = 0.0
             self.sr_type: str = "sr_model"
             self.block_time: float = 0.25  # s
             self.threhold: int = -60
@@ -143,14 +144,30 @@ if __name__ == "__main__":
             self.input_devices_indices = None
             self.output_devices_indices = None
             self.stream = None
+            if not self.config.nocheck:
+                self.check_assets()
             self.update_devices()
             self.launcher()
 
+        def check_assets(self):
+            global now_dir
+            from rvc.infer.lib.rvcmd import check_all_assets, download_all_assets
+
+            tmp = os.path.join(now_dir, "TEMP")
+            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(tmp, exist_ok=True)
+            if not check_all_assets(update=self.config.update):
+                if self.config.update:
+                    download_all_assets(tmpdir=tmp)
+                    if not check_all_assets(update=self.config.update):
+                        printt("counld not satisfy all assets needed.")
+                        exit(1)
+
         def load(self):
             try:
-                if not os.path.exists("configs/inuse/config.json"):
-                    shutil.copy("configs/config.json", "configs/inuse/config.json")
-                with open("configs/inuse/config.json", "r") as j:
+                if not os.path.exists("rvc/configs/inuse/config.json"):
+                    shutil.copy("rvc/configs/config.json", "rvc/configs/inuse/config.json")
+                with open("rvc/configs/inuse/config.json", "r") as j:
                     data = json.load(j)
                     data["sr_model"] = data["sr_type"] == "sr_model"
                     data["sr_device"] = data["sr_type"] == "sr_device"
@@ -197,6 +214,7 @@ if __name__ == "__main__":
                         "sr_type": "sr_model",
                         "threhold": -60,
                         "pitch": 0,
+                        "formant": 0.0,
                         "index_rate": 0,
                         "rms_mix_rate": 0,
                         "block_time": 0.25,
@@ -233,7 +251,7 @@ if __name__ == "__main__":
                                 sg.FileBrowse(
                                     i18n("选择.pth文件"),
                                     initial_folder=os.path.join(
-                                        os.getcwd(), "assets/weights"
+                                        os.getcwd(), "rvc/assets/weights"
                                     ),
                                     file_types=((". pth"),),
                                 ),
@@ -336,6 +354,17 @@ if __name__ == "__main__":
                                     resolution=1,
                                     orientation="h",
                                     default_value=data.get("pitch", 0),
+                                    enable_events=True,
+                                ),
+                            ],
+                            [
+                                sg.Text(i18n("共振偏移")),
+                                sg.Slider(
+                                    range=(-5, 5),
+                                    key="formant",
+                                    resolution=0.01,
+                                    orientation="h",
+                                    default_value=data.get("formant", 0.0),
                                     enable_events=True,
                                 ),
                             ],
@@ -564,6 +593,7 @@ if __name__ == "__main__":
                             ],
                             "threhold": values["threhold"],
                             "pitch": values["pitch"],
+                            "formant": values["formant"],
                             "rms_mix_rate": values["rms_mix_rate"],
                             "index_rate": values["index_rate"],
                             # "device_latency": values["device_latency"],
@@ -584,7 +614,7 @@ if __name__ == "__main__":
                                 ].index(True)
                             ],
                         }
-                        with open("configs/inuse/config.json", "w") as j:
+                        with open("rvc/configs/inuse/config.json", "w") as j:
                             json.dump(settings, j)
                         if self.stream is not None:
                             self.delay_time = (
@@ -606,6 +636,10 @@ if __name__ == "__main__":
                     self.gui_config.pitch = values["pitch"]
                     if hasattr(self, "rvc"):
                         self.rvc.change_key(values["pitch"])
+                elif event == "formant":
+                    self.gui_config.formant = values["formant"]
+                    if hasattr(self, "rvc"):
+                        self.rvc.change_formant(values["formant"])
                 elif event == "index_rate":
                     self.gui_config.index_rate = values["index_rate"]
                     if hasattr(self, "rvc"):
@@ -664,6 +698,7 @@ if __name__ == "__main__":
             ]
             self.gui_config.threhold = values["threhold"]
             self.gui_config.pitch = values["pitch"]
+            self.gui_config.formant = values["formant"]
             self.gui_config.block_time = values["block_time"]
             self.gui_config.crossfade_time = values["crossfade_length"]
             self.gui_config.extra_time = values["extra_time"]
@@ -686,8 +721,9 @@ if __name__ == "__main__":
 
         def start_vc(self):
             torch.cuda.empty_cache()
-            self.rvc = rvc_for_realtime.RVC(
+            self.rvc = rtrvc.RVC(
                 self.gui_config.pitch,
+                self.gui_config.formant,
                 self.gui_config.pth_path,
                 self.gui_config.index_path,
                 self.gui_config.index_rate,

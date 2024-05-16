@@ -11,7 +11,7 @@ import logging
 import numpy as np
 import pyworld
 
-from infer.lib.audio import load_audio
+from rvc.infer.lib.audio import load_audio
 
 logging.getLogger("numba").setLevel(logging.WARNING)
 
@@ -44,11 +44,11 @@ class FeatureInput(object):
         # p_len = x.shape[0] // self.hop
         if f0_method == "rmvpe":
             if hasattr(self, "model_rmvpe") == False:
-                from infer.lib.rmvpe import RMVPE
+                from rvc.infer.lib.rmvpe import RMVPE
 
                 print("Loading rmvpe model")
                 self.model_rmvpe = RMVPE(
-                    "assets/rmvpe/rmvpe.pt", is_half=False, device=device
+                    "rvc/assets/rmvpe/rmvpe.pt", is_half=False, device=device
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         return f0

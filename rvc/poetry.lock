@@ -840,7 +840,7 @@ testing = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "diff-cover (>=7.5)", "p
 [[package]]
 name = "fonttools"
 version = "4.41.1"
-description = "Tools to manipulate font files"
+description = "rvc/tools to manipulate font files"
 optional = false
 python-versions = ">=3.8"
 files = [

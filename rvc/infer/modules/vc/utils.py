@@ -24,7 +24,6 @@ def load_hubert(config):
         ["rvc/assets/hubert/hubert_base.pt"],
         suffix="",
     )
-    import os
     hubert_model = models[0]
     hubert_model = hubert_model.to(config.device)
     if config.is_half:

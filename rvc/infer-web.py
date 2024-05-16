@@ -5,9 +5,10 @@ from dotenv import load_dotenv
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 load_dotenv()
-from infer.modules.vc.modules import VC
-from infer.modules.uvr5.modules import uvr
-from infer.lib.train.process_ckpt import (
+load_dotenv("sha256.env")
+from rvc.infer.modules.vc.modules import VC
+from rvc.infer.modules.uvr5.modules import uvr
+from rvc.infer.lib.train.process_ckpt import (
     change_info,
     extract_small_model,
     merge,
@@ -44,7 +45,7 @@ shutil.rmtree("%s/runtime/Lib/site-packages/infer_pack" % (now_dir), ignore_erro
 shutil.rmtree("%s/runtime/Lib/site-packages/uvr5_pack" % (now_dir), ignore_errors=True)
 os.makedirs(tmp, exist_ok=True)
 os.makedirs(os.path.join(now_dir, "logs"), exist_ok=True)
-os.makedirs(os.path.join(now_dir, "assets/weights"), exist_ok=True)
+os.makedirs(os.path.join(now_dir, "rvc/assets/weights"), exist_ok=True)
 os.environ["TEMP"] = tmp
 warnings.filterwarnings("ignore")
 torch.manual_seed(114514)
@@ -53,6 +54,15 @@ torch.manual_seed(114514)
 config = Config()
 vc = VC(config)
 
+if not config.nocheck:
+    from rvc.infer.lib.rvcmd import check_all_assets, download_all_assets
+
+    if not check_all_assets(update=config.update):
+        if config.update:
+            download_all_assets(tmpdir=tmp)
+            if not check_all_assets(update=config.update):
+                logging.error("counld not satisfy all assets needed.")
+                exit(1)
 
 if config.dml == True:
 
@@ -120,16 +130,6 @@ else:
 gpus = "-".join([i[0] for i in gpu_infos])
 
 
-class ToolButton(gr.Button, gr.components.FormComponent):
-    """Small button with single emoji as text, fits inside gradio forms"""
-
-    def __init__(self, **kwargs):
-        super().__init__(variant="tool", **kwargs)
-
-    def get_block_name(self):
-        return "button"
-
-
 weight_root = os.getenv("weight_root")
 weight_uvr5_root = os.getenv("weight_uvr5_root")
 index_root = os.getenv("index_root")
@@ -179,7 +179,7 @@ def clean():
 
 
 def export_onnx(ModelPath, ExportedPath):
-    from infer.modules.onnx.export import export_onnx as eo
+    from rvc.infer.modules.onnx.export import export_onnx as eo
 
     eo(ModelPath, ExportedPath)
 
@@ -1184,8 +1184,8 @@ with gr.Blocks(title="RVC WebUI") as app:
                 )
                 if_f0_3 = gr.Radio(
                     label=i18n("模型是否带音高指导(唱歌一定要, 语音可以不要)"),
-                    choices=[True, False],
-                    value=True,
+                    choices=[i18n("是"), i18n("否")],
+                    value=i18n("是"),
                     interactive=True,
                 )
                 version19 = gr.Radio(
@@ -1339,12 +1339,12 @@ with gr.Blocks(title="RVC WebUI") as app:
                 with gr.Row():
                     pretrained_G14 = gr.Textbox(
                         label=i18n("加载预训练底模G路径"),
-                        value="assets/pretrained_v2/f0G40k.pth",
+                        value="rvc/assets/pretrained_v2/f0G40k.pth",
                         interactive=True,
                     )
                     pretrained_D15 = gr.Textbox(
                         label=i18n("加载预训练底模D路径"),
-                        value="assets/pretrained_v2/f0D40k.pth",
+                        value="rvc/assets/pretrained_v2/f0D40k.pth",
                         interactive=True,
                     )
                     sr2.change(
@@ -1608,12 +1608,16 @@ with gr.Blocks(title="RVC WebUI") as app:
             except:
                 gr.Markdown(traceback.format_exc())
 
-    if config.iscolab:
-        app.queue(concurrency_count=511, max_size=1022).launch(share=True)
-    else:
-        app.queue(concurrency_count=511, max_size=1022).launch(
-            server_name="0.0.0.0",
-            inbrowser=not config.noautoopen,
-            server_port=config.listen_port,
-            quiet=True,
-        )
+    try:
+        if config.iscolab:
+            app.queue(max_size=1022).launch(share=True, max_threads=511)
+        else:
+            app.queue(max_size=1022).launch(
+                max_threads=511,
+                server_name="0.0.0.0",
+                inbrowser=not config.noautoopen,
+                server_port=config.listen_port,
+                quiet=True,
+            )
+    except Exception as e:
+        logger.error(str(e))
