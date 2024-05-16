@@ -1,5 +1,7 @@
 import re
+import gc
 import numpy as np
+import torch
 
 def chunk_segments(segments, segment_length, value_func=None, transform_func=None):
     current_chunk = []
@@ -27,3 +29,7 @@ def generate_filtered_timestamps(stdout, minimum_interval):
 # Prepare rvc output for use with alignment
 def prepare_for_align(audio):
     return audio.astype(np.float32) / 32768.0
+
+def clean_up():
+    torch.cuda.empty_cache()
+    gc.collect()

@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form, Request
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
-from util import chunk_segments, prepare_for_align
+from util import chunk_segments, prepare_for_align, clean_up
 from fastapi.responses import Response
 
 from audio_processor import AudioProcessor
@@ -29,8 +29,9 @@ config.read('config.ini')
 async def lifespan(app: FastAPI):
     print("Starting up")
     app.state.audio_processor = AudioProcessor(model_settings=AudioProcessorSettings())
-    app.state.audio_processor.load_whisperx()
+    # app.state.audio_processor.load_whisperx()
     app.state.audio_processor.load_align()
+    # app.state.audio_processor.load_diarization()
     start_time = time.time()
     app.state.tts = create_tts()
     print(f"Tortoise Start Time: {time.time() - start_time}")
@@ -91,9 +92,9 @@ async def transcribe_url(url: HttpUrl = Form(...),
     file_path = await save_link(url, param)
 
     async with app.state.lock:
-        app.state.audio_processor.clean_up()
+        clean_up()
         transcript = await app.state.audio_processor.process(file_path.audio, param)
-        app.state.audio_processor.clean_up()
+        clean_up()
 
         storyboards = None
         if param.get_video:
@@ -142,11 +143,11 @@ async def transcribe_url(url: HttpUrl = Form(...),
 async def text2speech(request: TTSRequest):
 
     async with app.state.lock:
-        app.state.audio_processor.clean_up()
+        clean_up()
         result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
-        app.state.audio_processor.clean_up()
+        clean_up()
         result, samplerate = app.state.vc.vc_process(result)
-        app.state.audio_processor.clean_up()
+        clean_up()
 
         segments = [{
             'start': 0.0,
@@ -154,7 +155,7 @@ async def text2speech(request: TTSRequest):
             'text': request.prompt
         }]
         segments = app.state.audio_processor.alignment(segments, prepare_for_align(result))
-        app.state.audio_processor.clean_up()
+        clean_up()
     result = to_wav(result, samplerate)
 
     async def generate_data():
@@ -167,11 +168,11 @@ async def text2speech(request: TTSRequest):
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
     async with app.state.lock:
-        app.state.audio_processor.clean_up()
+        clean_up()
         result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
-        app.state.audio_processor.clean_up()
+        clean_up()
         result, samplerate = app.state.vc.vc_process(result)
-        app.state.audio_processor.clean_up()
+        clean_up()
     result = to_wav(result, samplerate)
     headers = {'Voice': request.voice}
     return Response(content=result, media_type="audio/wav", headers=headers)
