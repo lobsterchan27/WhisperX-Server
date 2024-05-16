@@ -23,8 +23,7 @@ last_latents = None
 
 
 def create_tts():
-    return TextToSpeech(models_dir=MODEL_DIR,
-                        use_deepspeed=False,
+    return TextToSpeech(use_deepspeed=True,
                         kv_cache=True,
                         half=False,
                         device='cuda')
