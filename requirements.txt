@@ -7,3 +7,4 @@ aiofiles
 yt-dlp
 git+https://github.com/JarodMica/tortoise-tts.git
 pyaudio
+./deepspeed-0.14.0+ce78a63-cp311-cp311-win_amd64.whl
