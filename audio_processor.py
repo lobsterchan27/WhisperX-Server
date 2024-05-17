@@ -24,19 +24,28 @@ class AudioProcessor:
         self.whisper_arch = model_settings.whisper_arch
 
     def load_whisperx(self):
+        if self.model is not None:
+            return
+
         start_time = time.time()
         self.model = whisperx.load_model(device=self.device,
-                                    compute_type=self.compute_type,
-                                    language=self.language,
-                                    whisper_arch=self.whisper_arch)
+                                        compute_type=self.compute_type,
+                                        language=self.language,
+                                        whisper_arch=self.whisper_arch)
         print("Whisperx model load time: ", time.time() - start_time)
 
     def load_align(self):
+        if self.align_model is not None:
+            return
+        
         start_time = time.time()
         self.align_model, self.metadata = whisperx.load_align_model(language_code=self.language, device=self.device)
         print("Align model load time: ", time.time() - start_time)
 
     def load_diarization(self):
+        if self.diarize_model is not None:
+            return
+        
         start_time = time.time()
         self.diarize_model = whisperx.DiarizationPipeline(use_auth_token=self.diarize_token, device=self.device)
         print("Diarization model load time: ", time.time() - start_time)
