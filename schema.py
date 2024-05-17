@@ -35,34 +35,42 @@ class MultipartResponse:
     media_type = "multipart/form-data"
     boundary = "bulk-data-boundary"
 
-    async def body_iterator(self, content: AsyncGenerator[Tuple[str, Any], None]):
-        async for data_type, data in content:
+    async def body_iterator(self, content: AsyncGenerator[Tuple[str, Any, Optional[str]], None]):
+        counter = 1
+        async for data_type, data, *name_parts in content:
+            name = name_parts[0] if name_parts else None
+            file_data = None
+            # Check if data is a file path
+            if isinstance(data, str) and os.path.isfile(data):
+                name = os.path.basename(data)
+                async with aiofiles.open(data, 'rb') as f:
+                    file_data = await f.read()
+            # Generate a name if none was provided
+            if not name:
+                ext = mimetypes.guess_extension(data_type) or ".bin"
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                name = f"{timestamp}{ext}"
+
+
             if data_type == "application/json":
                 yield (
                     f"--{self.boundary}\r\n"
-                    f"Content-Disposition: form-data; name=\"segments\"\r\n"
+                    f"Content-Disposition: form-data; name=\"{name}\"\r\n"
                     f"Content-Type: {data_type}\r\n\r\n"
                     f"{json.dumps(data)}\r\n"
                 ).encode()
             else:
-                # Assume data is a file path
-                if isinstance(data, str) and os.path.isfile(data):
-                    # Data is a file path
-                    filename = os.path.basename(data)
-                    async with aiofiles.open(data, 'rb') as f:
-                        file_data = await f.read()
-                else:
+                if not file_data:
                     # Assume data is direct file data
-                    ext = mimetypes.guess_extension(data_type) or ".bin"
-                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                    filename = f"{timestamp}.{ext}"
                     file_data = data
                 yield f"--{self.boundary}\r\n".encode()
-                yield f"Content-Disposition: form-data; name=\"{data_type}\"; filename=\"{filename}\"\r\n".encode()
+                yield f"Content-Disposition: form-data; name=\"{counter}\"; filename=\"{name}\"\r\n".encode()
                 yield f"Content-Type: {data_type}\r\n\r\n".encode()
                 yield file_data
                 yield "\r\n".encode()
+            counter += 1
         yield f"--{self.boundary}--\r\n".encode()
+
 
     def __call__(self, content: AsyncGenerator[Tuple[str, Any], None], headers: Dict[str, str]):
         return StreamingResponse(
