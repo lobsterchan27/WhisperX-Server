@@ -3,6 +3,7 @@ import asyncio
 import uvicorn
 import configparser
 import time
+import json
 
 from settings import HOSTNAME, PORT, AudioProcessorSettings
 from typing import Optional
@@ -96,6 +97,10 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          translate=translate,
                          get_video=get_video)
     file_path = await save_link(str(url), param)
+    print(file_path.json)
+
+    with open(file_path.json, 'r', encoding='utf-8') as f:
+        json_data = json.load(f)
 
     if app.state.vc:
         del app.state.vc
@@ -114,12 +119,15 @@ async def transcribe_url(url: HttpUrl = Form(...),
     segments = transcript['segments']
     transform_func = lambda segment: {key: segment[key] for key in segment if key != 'words'}
 
+    json_name = file_path.json.replace("download\\", "", 1)
+
     async def generate_data():
         if storyboards:
             for index, (storyboard, chunk) in enumerate(zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func))):
                 filename = os.path.basename(storyboard)
                 yield ("image/webp", storyboard)
-                yield ("application/json", {str(index): {"filename": filename, "segments": chunk}})
+                yield ("application/json", {str(index): {"filename": filename, "segments": chunk}}, 'segments')
+            yield ("application/json", json_data, json_name)
 
     headers = {"Base-Filename": file_path.basename}
     return MultipartResponse()(generate_data(), headers)
