@@ -12,8 +12,11 @@ from schema import RequestParam, SavePath
 
 
 def sanitize_filename(filename):
-    filename = re.sub(r'[\\/*?:"<>|]', "", filename)
-    return filename.replace(" ", "_")
+    """
+    Sanitize the title to ensure filename safety and consistency with JavaScript version.
+    Replace non-alphanumeric and non-underscore characters with underscore.
+    """
+    return re.sub(r'[^a-zA-Z0-9-_]', '_', filename)
 
 # Save to disk the uploaded file
 async def save_upload_file(upload_file: UploadFile) -> str:
@@ -35,7 +38,8 @@ def download_media(url, format, output_template, json=False):
         'restrictfilenames': True,
         'outtmpl': output_template,
         'writeinfojson': json,
-        'quiet': True
+        'quiet': True,
+        'nooverwrites': True
     }
 
     with YoutubeDL(ydl_opts) as ydl:
