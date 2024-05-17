@@ -1,7 +1,4 @@
 import os
-import gc
-import uuid
-import json
 import asyncio
 import uvicorn
 import configparser
@@ -28,15 +25,24 @@ config.read('config.ini')
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up")
+
+    start_time = time.time()
+    app.state.tts = create_tts()
+    print(f"Tortoise Start Time: {time.time() - start_time}")
+
+    app.state.lock = asyncio.Lock()
     app.state.audio_processor = AudioProcessor(model_settings=AudioProcessorSettings())
     # app.state.audio_processor.load_whisperx()
     app.state.audio_processor.load_align()
     # app.state.audio_processor.load_diarization()
-    start_time = time.time()
-    app.state.tts = create_tts()
-    print(f"Tortoise Start Time: {time.time() - start_time}")
-    app.state.vc = VCWrapper()
-    app.state.lock = asyncio.Lock()
+
+    # start_time = time.time()
+    app.state.vc = None
+    # app.state.vc = VCWrapper()
+    # print(f"VC Start Time: {time.time() - start_time}")
+
+    clean_up()
+
     yield
     print("Shutting down")
     app.state.audio_processor.clean_up(final=True)
@@ -73,7 +79,7 @@ async def transcribe_file(file: UploadFile = File(...),
 
 @app.post("/api/transcribe/url")
 async def transcribe_url(url: HttpUrl = Form(...),
-                         language: Optional[str] = Form(None),
+                         language: Optional[str] = Form('en'),
                          text2speech: Optional[bool] = Form(False),
                          segment_length: Optional[int] = Form(30),
                          scene_threshold: Optional[float] = Form(0.02),
@@ -89,10 +95,15 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          fixed_interval=fixed_interval,
                          translate=translate,
                          get_video=get_video)
-    file_path = await save_link(url, param)
+    file_path = await save_link(str(url), param)
+
+    if app.state.vc:
+        del app.state.vc
+        clean_up()
+
+    app.state.audio_processor.load_whisperx()
 
     async with app.state.lock:
-        clean_up()
         transcript = await app.state.audio_processor.process(file_path.audio, param)
         clean_up()
 
@@ -141,9 +152,14 @@ async def transcribe_url(url: HttpUrl = Form(...),
 
 @app.post("/api/text2speech/align")
 async def text2speech(request: TTSRequest):
+    
+    app.state.audio_processor.unload_whisperx()
+
+    if app.state.vc is None:
+        app.state.vc = VCWrapper()
+        clean_up()
 
     async with app.state.lock:
-        clean_up()
         result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
         clean_up()
         result, samplerate = app.state.vc.vc_process(result)
@@ -154,7 +170,7 @@ async def text2speech(request: TTSRequest):
             'end': duration,
             'text': request.prompt
         }]
-        segments = app.state.audio_processor.alignment(segments, prepare_for_align(result))
+        segments = app.state.audio_processor.alignment(segments, prepare_for_align(result, samplerate))
         clean_up()
     result = to_wav(result, samplerate)
 
@@ -167,8 +183,14 @@ async def text2speech(request: TTSRequest):
 
 @app.post("/api/text2speech")
 async def text2speech(request: TTSRequest):
-    async with app.state.lock:
+    
+    app.state.audio_processor.unload_whisperx()
+
+    if app.state.vc is None:
+        app.state.vc = VCWrapper()
         clean_up()
+       
+    async with app.state.lock:
         result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
         clean_up()
         result, samplerate = app.state.vc.vc_process(result)
@@ -180,8 +202,6 @@ async def text2speech(request: TTSRequest):
 @app.post("/api/rvc")
 async def rvc():
     return "Not implemented yet"
-
-
 
 if __name__ == "__main__":
     uvicorn.run(app,
