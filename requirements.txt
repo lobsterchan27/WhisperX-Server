@@ -5,5 +5,5 @@ requests
 python-dotenv
 aiofiles
 yt-dlp
-tortoise-tts @ git+https://github.com/lobsterchan27/ai-voice-cloning.git
+git+https://github.com/JarodMica/tortoise-tts.git
 pyaudio

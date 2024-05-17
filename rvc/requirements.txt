@@ -34,7 +34,6 @@ pyasn1-modules>=0.2.8
 fsspec>=2022.11.0
 absl-py>=1.2.0
 audioread
-uvicorn>=0.21.1
 colorama>=0.4.5
 pyworld==0.3.2
 httpx

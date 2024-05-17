@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from dataclasses import dataclass
 
 class RequestParam(BaseModel):
-    language: str = None
+    language: str = 'en'
     text2speech: bool = False
     segment_length: int = 30
     scene_threshold: Optional[float] = 0.02
