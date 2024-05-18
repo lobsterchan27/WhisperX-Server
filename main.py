@@ -119,7 +119,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
     segments = transcript['segments']
     transform_func = lambda segment: {key: segment[key] for key in segment if key != 'words'}
 
-    json_name = file_path.json.replace("download\\", "", 1)
+    json_name = os.path.basename(file_path.json)
 
     async def generate_data():
         if storyboards:
