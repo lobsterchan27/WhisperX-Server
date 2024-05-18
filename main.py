@@ -4,10 +4,11 @@ import uvicorn
 import configparser
 import time
 import json
+from dotenv import load_dotenv
 
 from settings import HOSTNAME, PORT, AudioProcessorSettings
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Form, Request
+from fastapi import FastAPI, File, UploadFile, Form, Request, HTTPException
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
 from util import chunk_segments, prepare_for_align, clean_up
@@ -16,12 +17,14 @@ from fastapi.responses import Response
 from audio_processor import AudioProcessor
 from schema import RequestParam, MultipartResponse, TTSRequest
 from video_download import save_upload_file, save_link, generate_storyboards
-
 from tts_functions import generate_tts, to_wav, create_tts
 from rvc_processing import VCWrapper
 
 config = configparser.ConfigParser()
 config.read('config.ini')
+load_dotenv()
+
+API_TOKEN = os.getenv("API_TOKEN")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,6 +64,14 @@ async def process_time(request: Request, call_next):
     print(f"Processing time: {process_time}")
     return response
 
+@app.middleware("http")
+async def verify_token(request: Request, call_next):
+    if request.url.path.startswith("/api"):
+        token = request.headers.get("Authorization")
+        if token is None or token != f"Bearer {API_TOKEN}":
+            raise HTTPException(status_code=401, detail="Unauthorized")
+    response = await call_next(request)
+    return response
 
 @app.post("/api/transcribe/file")
 async def transcribe_file(file: UploadFile = File(...),
