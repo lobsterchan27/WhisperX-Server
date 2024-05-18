@@ -103,7 +103,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
         json_data = json.load(f)
 
     if app.state.vc:
-        del app.state.vc
+        app.state.vc = None
         clean_up()
 
     app.state.audio_processor.load_whisperx()

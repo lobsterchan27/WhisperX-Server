@@ -52,19 +52,19 @@ class AudioProcessor:
 
     def unload_whisperx(self):
         if self.model is not None:
-            del self.model
+            self.model = None
             torch.cuda.empty_cache()
             gc.collect()
 
     def unload_align(self):
         if self.align_model is not None:
-            del self.align_model
+            self.align_model = None
             torch.cuda.empty_cache()
             gc.collect()
 
     def unload_diarization(self):
         if self.diarize_model is not None:
-            del self.diarize_model
+            self.diarize_model = None
             torch.cuda.empty_cache()
             gc.collect()
 
