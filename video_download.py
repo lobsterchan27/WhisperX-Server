@@ -4,12 +4,16 @@ import aiofiles
 import re
 import os
 import math
+import time
 
 from util import chunk_segments, generate_filtered_timestamps
 from yt_dlp import YoutubeDL
 from fastapi import UploadFile
 from schema import RequestParam, SavePath
 
+MAX_IMAGE_DIMENSION = 8192
+MAX_CONCURRENT_TASKS = 2
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 
 def sanitize_filename(filename):
     """
@@ -108,6 +112,7 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
             '-f', 'null', '-'
         ]
     ffmpeg_process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    
 
     # Read ffprobe output
     stdout, _ = await ffprobe_process.communicate()
@@ -126,41 +131,52 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
 
     # Generate a storyboard for each chunk
     tasks = []
+
+    startTime = time.time()
     for i, chunk in enumerate(segmented_timestamps):
         tasks.append(asyncio.create_task(generate_storyboard(chunk, width, height, filename, output_path, i)))
     results = await asyncio.gather(*tasks)
+    print(f"Time taken for storyboards: {time.time() - startTime}")
     return results
 
-MAX_IMAGE_DIMENSION = 8192
 # Generates each storyboard from the given timestamps
-async def generate_storyboard(frames, width, height, filename, output_path, i = 0):
-    aspect_ratio = width / height
-    grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
+async def generate_storyboard(frames, width, height, filename, output_path, i=0):
+    async with semaphore:
+        startTime = time.time()
+        print(f'processing process{i}')
+        aspect_ratio = width / height
+        grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
 
-    # Calculate the expected width and height of the final image with initial scale factor
-    initial_scale_factor = 0.5
-    expected_width = width * initial_scale_factor * grid_cols
-    expected_height = height * initial_scale_factor * grid_rows
+        # Calculate the expected width and height of the final image with initial scale factor
+        initial_scale_factor = 0.5
+        expected_width = width * initial_scale_factor * grid_cols
+        expected_height = height * initial_scale_factor * grid_rows
 
-    # Calculate the scaling factor to ensure the final image size does not exceed the maximum limit
-    if expected_width > MAX_IMAGE_DIMENSION or expected_height > MAX_IMAGE_DIMENSION:
-        # Calculate scale factor based on the larger dimension
-        scale_factor = (MAX_IMAGE_DIMENSION / max(expected_width, expected_height)) * initial_scale_factor
-    else:
-        scale_factor = initial_scale_factor
+        # Calculate the scaling factor to ensure the final image size does not exceed the maximum limit
+        if expected_width > MAX_IMAGE_DIMENSION or expected_height > MAX_IMAGE_DIMENSION:
+            # Calculate scale factor based on the larger dimension
+            scale_factor = (MAX_IMAGE_DIMENSION / max(expected_width, expected_height)) * initial_scale_factor
+        else:
+            scale_factor = initial_scale_factor
 
-    # Generate the thumbnail grid using the filtered timestamps
-    select_filters = [f'between(t\,{timestamp-0.02}\,{timestamp+0.02})' for timestamp in frames]
-    select_filter_str = '+'.join(select_filters)
+        start_time = max(0, min(frames) - 0.02)
+        end_time = max(frames) + 0.02
+        duration = end_time - start_time
 
-    cmd = [
-        'ffmpeg', '-y', '-i', filename, '-vf',
-        f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*.5:-1',
-        f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
-    ]
-    process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-    await process.wait()
-    return f'{output_path}_grid_{i}.webp'
+        # Generate the thumbnail grid using the filtered timestamps
+        select_filters = [f'between(t\,{timestamp-start_time-0.02}\,{timestamp-start_time+0.02})' for timestamp in frames]
+        select_filter_str = '+'.join(select_filters)
+
+        cmd = [
+            'ffmpeg', '-ss', str(start_time), '-t', str(duration), '-y', '-i', filename, '-vf',
+            f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*{scale_factor}:-1',
+            f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
+        ]
+        process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        await process.wait()
+        print(f'returning from process{i}')
+        print(f"Time taken for process{i}: {time.time() - startTime}")
+        return f'{output_path}_grid_{i}.webp'
 
 
 
