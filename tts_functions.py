@@ -16,7 +16,13 @@ from time import time
 from scipy.io.wavfile import write
 
 
-from settings import MODEL_DIR, OUTPUT_DIR, VOICES_DIRECTORY
+from settings import (
+    MODEL_DIR,
+    OUTPUT_DIR,
+    VOICES_DIRECTORY,
+    DEVICE,
+    COMPUTE_TYPE,
+)
 
 last_voice = None
 last_latents = None
@@ -25,8 +31,8 @@ last_latents = None
 def create_tts():
     return TextToSpeech(use_deepspeed=True,
                         kv_cache=True,
-                        half=False,
-                        device='cuda')
+                        half=True if COMPUTE_TYPE == 'float16' else False,
+                        device=DEVICE)
 
 
 def load_or_generate_latents(tts: TextToSpeech, voice, directory: str):

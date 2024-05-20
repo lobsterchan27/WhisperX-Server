@@ -19,6 +19,9 @@ config.read('config.ini')
 HOSTNAME = config.get('Network', 'host')
 PORT = config.getint('Network', 'port')
 
+DEVICE = config.get('General', 'device')
+COMPUTE_TYPE = config.get('General', 'compute_type')
+
 class RVCSettings:
     def __init__(self):
         self.pth_path = os.path.join(RVC_MODEL_DIR, "FrierenFrierenv3_e150_s15000.pth")
@@ -62,7 +65,8 @@ class VCSettings:
 
 class AudioProcessorSettings:
     def __init__(self):
-        self.device = "cuda"
-        self.compute_type = "float32"
-        self.language = "en"
-        self.whisper_arch = "medium"
+        self.device = DEVICE
+        self.compute_type = COMPUTE_TYPE
+        self.language = config.get('Model Settings', 'language')
+        self.whisper_arch = config.get('Model Settings', 'whisper_arch')
+        self.batch_size = config.getint('Model Settings', 'batch_size')

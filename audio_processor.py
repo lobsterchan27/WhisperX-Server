@@ -7,7 +7,7 @@ import asyncio
 from schema import RequestParam
 from settings import AudioProcessorSettings
 
-from settings import HF_TOKEN
+from settings import HF_TOKEN, COMPUTE_TYPE
 
 class AudioProcessor:
     def __init__(self, model_settings = AudioProcessorSettings):
@@ -22,6 +22,7 @@ class AudioProcessor:
         self.compute_type = model_settings.compute_type
         self.language = model_settings.language
         self.whisper_arch = model_settings.whisper_arch
+        self.batch_size = model_settings.batch_size
 
     def load_whisperx(self):
         if self.model is not None:
@@ -32,6 +33,7 @@ class AudioProcessor:
                                         compute_type=self.compute_type,
                                         language=self.language,
                                         whisper_arch=self.whisper_arch)
+        self.clean_up()
         print("Whisperx model load time: ", time.time() - start_time)
 
     def load_align(self):
@@ -69,7 +71,6 @@ class AudioProcessor:
             gc.collect()
 
     async def process(self, file: str, param: RequestParam):
-        batch_size = 16
         audio = whisperx.load_audio(file)
 
         # Check task and language
@@ -79,7 +80,7 @@ class AudioProcessor:
         # Transcribe audio
         print("Transcribing audio...")
         start_time = time.time()
-        transcription_result = await asyncio.to_thread(self.model.transcribe, audio, batch_size=batch_size)
+        transcription_result = await asyncio.to_thread(self.model.transcribe, audio, batch_size=self.batch_size)
         print("Transcription time: ", time.time() - start_time)
 
         # Diarize audio if requested
