@@ -163,5 +163,6 @@ download/**
 output/**
 models/**
 voices/**
+my-venv/**
 
 .history/
