@@ -22,6 +22,10 @@ PORT = config.getint('Network', 'port')
 DEVICE = config.get('General', 'device')
 COMPUTE_TYPE = config.get('General', 'compute_type')
 
+TTS_TYPE = config.get('TTS', 'tts_type')
+
+VOICE_CHUNK_DURATION_SIZE = 10
+
 class RVCSettings:
     def __init__(self):
         self.pth_path = os.path.join(RVC_MODEL_DIR, "FrierenFrierenv3_e150_s15000.pth")

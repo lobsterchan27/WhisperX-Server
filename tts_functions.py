@@ -1,9 +1,11 @@
-from tortoise.api_fast import TextToSpeech
 from tortoise.utils.text import split_and_recombine_text
-from tortoise.utils.audio import get_voices, load_audio
+from tortoise.utils.audio import get_voices, load_audio, load_voice, get_voice_dir
 from collections import deque
 
 import edge_tts
+from tortoise.api_fast import TextToSpeech as TextToSpeechFast, pad_or_truncate
+from tortoise.api import TextToSpeech as TextToSpeechSlow
+
 import torch
 import torchaudio
 import os
@@ -23,20 +25,64 @@ from settings import (
     VOICES_DIRECTORY,
     DEVICE,
     COMPUTE_TYPE,
+    TTS_TYPE,
+    VOICE_CHUNK_DURATION_SIZE
 )
 
 last_voice = None
 last_latents = None
 
+voice_cache = {}
+tts = None
 
 def create_tts():
-    return TextToSpeech(use_deepspeed=True,
-                        kv_cache=True,
-                        half=True if COMPUTE_TYPE == 'float16' else False,
-                        device=DEVICE)
+    if TTS_TYPE == 'fast':
+        print("Using fast TTS")
+        return TextToSpeechFast(use_deepspeed=True,
+                            kv_cache=True,
+                            half=True if COMPUTE_TYPE == 'float16' else False,
+                            device=DEVICE)
+    else:
+        print("Using slow TTS")
+        return TextToSpeechSlow(use_deepspeed=True,
+                            kv_cache=True,
+                            half=True if COMPUTE_TYPE == 'float16' else False,
+                            device=DEVICE)
+
+    
+def get_chunk_size( voice ):
+    path = f'{get_voice_dir()}/{voice}/'
+    if not os.path.isdir(path):
+        return 1
+    
+    dataset_file = f'./training/{voice}/train.txt'
+    if os.path.exists(dataset_file):
+        return 0 # 0 will leverage using the LJspeech dataset for computing latents
+
+    files = os.listdir(path)
+    
+    total = 0
+    total_duration = 0
+
+    for file in files:
+        if file[-4:] != ".wav":
+            continue
+
+        metadata = torchaudio.info(f'{path}/{file}')
+        duration = metadata.num_frames / metadata.sample_rate
+        total_duration += duration
+        total = total + 1
 
 
-def load_or_generate_latents(tts: TextToSpeech, voice, directory: str):
+    # brain too fried to figure out a better way
+    if VOICE_CHUNK_DURATION_SIZE == 0:
+        result = int(total_duration / total) if total > 0 else 1
+        return result
+    result = int(total_duration / VOICE_CHUNK_DURATION_SIZE) if total_duration > 0 else 1
+    print(f"\n\nAutocalculated voice chunk duration size: {result}\n\n")
+    return result
+
+def load_or_generate_latents(tts, voice, directory: str):
     global last_voice, last_latents
     if voice != last_voice:
         save_path = f'{directory}/{voice}/{voice}.pth'
@@ -49,22 +95,102 @@ def load_or_generate_latents(tts: TextToSpeech, voice, directory: str):
     return last_latents
     
 
-def generate_latents(tts: TextToSpeech, voice, directory: str):
-    voices = get_voices([directory])
-    selected_voice = voice.split(',')
-    conds = []
-    for voice in selected_voice:
-        cond_paths = voices[voice]
-        for cond_path in cond_paths:
-            audio = load_audio(cond_path, 22050)
-            conds.append(audio)
-    conditioning_latents = tts.get_conditioning_latents(conds)
-    save_path = f'{directory}/{voice}/{voice}.pth'
-    torch.save(conditioning_latents, save_path)
+# def generate_latents(tts: TextToSpeechFast, voice, directory: str):
+#     voices = get_voices([directory])
+#     selected_voice = voice.split(',')
+#     conds = []
+#     for voice in selected_voice:
+#         cond_paths = voices[voice]
+#         for cond_path in cond_paths:
+#             audio = load_voice(cond_path, 22050)
+#     conditioning_latents = tts.get_conditioning_latents(conds)
+#     save_path = f'{directory}/{voice}/{voice}.pth'
+#     torch.save(conditioning_latents, save_path)
+#     return conditioning_latents
+
+def fetch_voice(tts, voice):
+    global voice_cache
+    cache_key = f'{voice}:{tts.autoregressive_model_hash[:8]}'
+    if cache_key in voice_cache:
+        print("\n\n#100\n\n")
+        return voice_cache[cache_key]
+
+    voice_latent_chunks = get_chunk_size(voice)
+    sample_voice = None
+    
+    if voice == 'random':
+        voice_samples, conditioning_latents = None, tts.get_random_conditioning_latents()
+    else:
+        voice_samples, conditioning_latents = load_voice(voice, model_hash=tts.autoregressive_model_hash)
+        
+    print(f'Voice samples: {voice_samples}')
+
+    if voice_samples and len(voice_samples) > 0:
+        if conditioning_latents is None:
+            print("\n\npassing through conditioning latents conditional")
+            conditioning_latents = compute_latents(tts=tts, voice=voice, voice_samples=voice_samples, voice_latents_chunks=voice_latent_chunks)
+            print('conditioning latents: ', conditioning_latents)
+                
+        sample_voice = torch.cat(voice_samples, dim=-1).squeeze().cpu()
+        voice_samples = None
+        
+    print('final conditioning_latents: ', conditioning_latents)
+    voice_cache[cache_key] = (voice_samples, conditioning_latents, sample_voice)
+    return voice_cache[cache_key]
+
+
+def compute_latents(tts, voice=None, voice_samples=None, voice_latents_chunks=0, original_ar=False, original_diffusion=False):
+
+    if voice:
+        load_from_dataset = voice_latents_chunks == 0
+
+        if load_from_dataset:
+            dataset_path = f'./training/{voice}/train.txt'
+            if not os.path.exists(dataset_path):
+                load_from_dataset = False
+            else:
+                with open(dataset_path, 'r', encoding="utf-8") as f:
+                    lines = f.readlines()
+
+                print("Leveraging dataset for computing latents")
+
+                voice_samples = []
+                max_length = 0
+                for line in lines:
+                    filename = f'./training/{voice}/{line.split("|")[0]}'
+                    
+                    waveform = load_audio(filename, 22050)
+                    max_length = max(max_length, waveform.shape[-1])
+                    voice_samples.append(waveform)
+
+                for i in range(len(voice_samples)):
+                    voice_samples[i] = pad_or_truncate(voice_samples[i], max_length)
+
+                voice_latents_chunks = len(voice_samples)
+                if voice_latents_chunks == 0:
+                    print("Dataset is empty!")
+                    load_from_dataset = True
+        if not load_from_dataset:
+            print("\n\nComputing voice latents from provided audio samples\n\n")
+            voice_samples, _ = load_voice(voice, load_latents=False)
+
+    if voice_samples is None:
+        return
+    
+    conditioning_latents = tts.get_conditioning_latents(voice_samples, return_mels=False, slices=voice_latents_chunks, force_cpu=False, original_ar=original_ar, original_diffusion=original_diffusion)
+    
+    
+    if len(conditioning_latents) == 4:
+        conditioning_latents = (conditioning_latents[0], conditioning_latents[1], conditioning_latents[2], None)
+    
+    outfile = f'{get_voice_dir()}/{voice}/cond_latents_{tts.autoregressive_model_hash[:8]}.pth'
+    torch.save(conditioning_latents, outfile)
+    print(f'Saved voice latents: {outfile}')
+
     return conditioning_latents
 
 
-def save_audio(tts: TextToSpeech, prompt, voice, resample=None):
+def save_audio(tts, prompt, voice, resample=None):
     output_dir = os.path.join(OUTPUT_DIR, voice)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -90,15 +216,18 @@ def resample_audio(audio, resample: int):
     return audio
 
 
-def generate_tts(tts: TextToSpeech, prompt, voice):
+def generate_tts(tts, prompt, voice):
+    samplerate = 24000
+    
     if '|' in prompt:
         print("Found the '|' character in your text, which I will use as a cue for where to split it up. If this was not"
               "your intent, please remove all '|' characters from the input.")
         prompts = prompt.split('|')
     else:
         prompts = split_and_recombine_text(prompt)
-
-    conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
+    
+    _, conditioning_latents, _ = fetch_voice(tts, voice)
+    # conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
 
     all_parts = []
     overall_time = time()
@@ -112,15 +241,15 @@ def generate_tts(tts: TextToSpeech, prompt, voice):
         all_parts.append(audio)
 
         print("Time taken to generate the audio: ", end_time - start_time, "seconds")
-        print("RTF: ", (end_time - start_time) / (audio.shape[0] / 24000))
+        print("RTF: ", (end_time - start_time) / (audio.shape[0] / samplerate))
     full_audio = (torch.cat(all_parts, dim=-1)).numpy()
-    duration = full_audio.shape[0] / 24000  # Assuming a sample rate of 24,000 Hz
+    duration = full_audio.shape[0] / samplerate  # Assuming a sample rate of 24,000 Hz
     print("Length of the audio: ", duration, "seconds")
     print("Total time taken to generate the audio: ", time() - overall_time, "seconds")
 
-    return full_audio, duration  # Return both the audio array and its duration
+    return full_audio, duration, samplerate  # Return both the audio array and its duration
 
-def generate_tts_stream(tts: TextToSpeech,
+def generate_tts_stream(tts,
                         prompt,
                         voice,
                         audio_queue: deque=None,
