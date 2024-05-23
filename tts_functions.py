@@ -45,8 +45,8 @@ def create_tts():
     else:
         print("Using slow TTS")
         return TextToSpeechSlow(use_deepspeed=True,
-                            kv_cache=True,
-                            half=True if COMPUTE_TYPE == 'float16' else False,
+                                minor_optimizations=True,
+                            unsqueeze_sample_batches=False,
                             device=DEVICE)
 
     
@@ -229,12 +229,37 @@ def generate_tts(tts, prompt, voice):
     _, conditioning_latents, _ = fetch_voice(tts, voice)
     # conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
 
+    settings = {'temperature': .4, 'length_penalty': 1.0, 'repetition_penalty': 2.0,
+                'top_p': .8,
+                'cond_free_k': 2.0, 'diffusion_temperature': 1.0}
+    
+    presets = {
+        'ultra_fast': {'num_autoregressive_samples': 8, 'diffusion_iterations': 30, 'cond_free': False},
+        'fast': {'num_autoregressive_samples': 96, 'diffusion_iterations': 80},
+        'standard': {'num_autoregressive_samples': 256, 'diffusion_iterations': 200},
+        'high_quality': {'num_autoregressive_samples': 256, 'diffusion_iterations': 400},
+        'custom': {'num_autoregressive_samples': 2, 'diffusion_iterations': 100, 'cond_free': True}
+    }
+
     all_parts = []
     overall_time = time()
     for j, prompt in enumerate(prompts):
         print(f"Generating audio for prompt : {prompt}")
         start_time = time()
-        gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
+        if isinstance(tts, TextToSpeechFast):
+            gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
+            
+        if isinstance(TextToSpeechSlow):
+            gen = tts.tts(prompt,
+                          half_p=True if COMPUTE_TYPE == 'float16' else False ,
+                          voice_samples=None,
+                          conditioning_latents=conditioning_latents,
+                          temperature=settings['temperature'],
+                          num_autoregressive_samples=presets['ultra_fast']['num_autoregressive_samples'],
+                          diffusion_iterations=presets['ultra_fast']['diffusion_iterations'],
+                          length_penalty=settings['length_penalty'],
+                          cvvp_amount=0)
+            
         end_time = time()
         audio = gen.squeeze().cpu()
 
@@ -321,7 +346,7 @@ async def get_edge_tts(prompt, voice):
     audio_data = np.squeeze(audio_data)
     duration = audio_data.shape[0] / sample_rate
     os.remove(output_file)
-    return audio_data, duration
+    return audio_data, sample_rate, duration
 
 if __name__=='__main__':
     import io
