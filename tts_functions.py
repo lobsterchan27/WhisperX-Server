@@ -90,18 +90,34 @@ def resample_audio(audio, resample: int):
 
 
 def generate_tts(tts: TextToSpeech, prompt, voice):
+    if '|' in prompt:
+        print("Found the '|' character in your text, which I will use as a cue for where to split it up. If this was not"
+              "your intent, please remove all '|' characters from the input.")
+        prompts = prompt.split('|')
+    else:
+        prompts = split_and_recombine_text(prompt)
+
     conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
-    start_time = time()
-    gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
-    end_time = time()
-    audio = gen.squeeze().cpu().numpy()
-    duration = audio.shape[0] / 24000  # Assuming a sample rate of 24,000 Hz
 
-    print("Time taken to generate the audio: ", end_time - start_time, "seconds")
-    print("RTF: ", (end_time - start_time) / duration)
+    all_parts = []
+    overall_time = time()
+    for j, prompt in enumerate(prompts):
+        print(f"Generating audio for prompt : {prompt}")
+        start_time = time()
+        gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
+        end_time = time()
+        audio = gen.squeeze().cpu()
+
+        all_parts.append(audio)
+
+        print("Time taken to generate the audio: ", end_time - start_time, "seconds")
+        print("RTF: ", (end_time - start_time) / (audio.shape[0] / 24000))
+    full_audio = (torch.cat(all_parts, dim=-1)).numpy()
+    duration = full_audio.shape[0] / 24000  # Assuming a sample rate of 24,000 Hz
     print("Length of the audio: ", duration, "seconds")
+    print("Total time taken to generate the audio: ", time() - overall_time, "seconds")
 
-    return audio, duration  # Return both the audio array and its duration
+    return full_audio, duration  # Return both the audio array and its duration
 
 def generate_tts_stream(tts: TextToSpeech,
                         prompt,
