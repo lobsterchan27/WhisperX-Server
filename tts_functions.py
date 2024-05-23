@@ -3,6 +3,7 @@ from tortoise.utils.text import split_and_recombine_text
 from tortoise.utils.audio import get_voices, load_audio
 from collections import deque
 
+import edge_tts
 import torch
 import torchaudio
 import os
@@ -182,6 +183,16 @@ def to_wav(audio, samplerate):
     sf.write(byte_io, audio, samplerate, format='WAV')
     byte_io.seek(0)
     return byte_io.getvalue()
+
+async def get_edge_tts(prompt, voice):
+    output_file = 'temp.wav'
+    communicate = edge_tts.Communicate(prompt, voice)
+    await communicate.save(output_file)
+    audio_data, sample_rate = sf.read(output_file)
+    audio_data = np.squeeze(audio_data)
+    duration = audio_data.shape[0] / sample_rate
+    os.remove(output_file)
+    return audio_data, duration
 
 if __name__=='__main__':
     import io

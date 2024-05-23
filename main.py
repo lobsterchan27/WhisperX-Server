@@ -15,9 +15,9 @@ from util import chunk_segments, prepare_for_align, clean_up
 from fastapi.responses import Response
 
 from audio_processor import AudioProcessor
-from schema import RequestParam, MultipartResponse, TTSRequest
+from schema import RequestParam, MultipartResponse, TTSRequest, EdgeTTSRequest
 from video_download import save_upload_file, save_link, generate_storyboards
-from tts_functions import generate_tts, to_wav, create_tts
+from tts_functions import generate_tts, to_wav, create_tts, get_edge_tts
 from rvc_processing import VCWrapper
 
 config = configparser.ConfigParser()
@@ -64,14 +64,14 @@ async def process_time(request: Request, call_next):
     print(f"Processing time: {process_time}")
     return response
 
-@app.middleware("http")
-async def verify_token(request: Request, call_next):
-    if request.url.path.startswith("/api"):
-        token = request.headers.get("Authorization")
-        if token is None or token != f"Bearer {API_TOKEN}":
-            raise HTTPException(status_code=401, detail="Unauthorized")
-    response = await call_next(request)
-    return response
+# @app.middleware("http")
+# async def verify_token(request: Request, call_next):
+#     if request.url.path.startswith("/api"):
+#         token = request.headers.get("Authorization")
+#         if token is None or token != f"Bearer {API_TOKEN}":
+#             raise HTTPException(status_code=401, detail="Unauthorized")
+#     response = await call_next(request)
+#     return response
 
 @app.post("/api/transcribe/file")
 async def transcribe_file(file: UploadFile = File(...),
@@ -221,6 +221,33 @@ async def text2speech(request: TTSRequest):
 @app.post("/api/rvc")
 async def rvc():
     return "Not implemented yet"
+
+
+@app.post('/api/generate/tts')
+async def generateTTS(request: EdgeTTSRequest):
+    app.state.audio_processor.unload_whisperx()
+
+    if app.state.vc is None:
+        app.state.vc = VCWrapper()
+        clean_up()
+       
+    async with app.state.lock:
+        prompt = request.prompt
+        voice = request.voice
+        audio_data, duration = await get_edge_tts(prompt, voice)
+        audio_data, samplerate = app.state.vc.vc_process(audio_data)
+        segments = [{
+            'start': 0.0,
+            'end': duration,
+            'text': request.prompt
+        }]
+    audio_data = to_wav(audio_data, samplerate)
+    async def generate_data():
+        yield ("application/json", segments['segments'])
+        yield ("audio/wav", audio_data)
+    headers = {'Voice': request.voice}
+    return MultipartResponse()(generate_data(), headers)
+
 
 if __name__ == "__main__":
     uvicorn.run(app,

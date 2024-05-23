@@ -31,6 +31,11 @@ class TTSRequest(BaseModel):
     seed: Optional[int] = None
     kv_cache: bool = True
 
+class EdgeTTSRequest(BaseModel):
+    prompt: str
+    voice: str
+    output_file: str
+
 class MultipartResponse:
     media_type = "multipart/form-data"
     boundary = "bulk-data-boundary"
