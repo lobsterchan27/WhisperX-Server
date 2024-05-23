@@ -15,7 +15,7 @@ from util import chunk_segments, prepare_for_align, clean_up
 from fastapi.responses import Response
 
 from audio_processor import AudioProcessor
-from schema import RequestParam, MultipartResponse, TTSRequest, EdgeTTSRequest
+from schema import RequestParam, MultipartResponse, TTSRequest
 from video_download import save_upload_file, save_link, generate_storyboards
 from tts_functions import generate_tts, to_wav, create_tts, get_edge_tts
 from rvc_processing import VCWrapper
@@ -217,7 +217,7 @@ async def text2speech(request: TTSRequest):
         clean_up()
         
     if request.backend == 'edge':
-        result, duration = await get_edge_tts(request.prompt, request.voice)
+        result, samplerate, duration = await get_edge_tts(request.prompt, request.voice)
        
     async with app.state.lock:
         if request.backend == 'tortoise':
