@@ -171,6 +171,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
 
 @app.post("/api/text2speech/align")
 async def text2speech(request: TTSRequest):
+    print('Using voice: ' + request.voice)
     
     app.state.audio_processor.unload_whisperx()
 
@@ -179,7 +180,7 @@ async def text2speech(request: TTSRequest):
         clean_up()
 
     async with app.state.lock:
-        result, duration = generate_tts(app.state.tts, request.prompt, request.voice)
+        result, duration, samplerate = generate_tts(app.state.tts, request.prompt, request.voice)
         clean_up()
         result, samplerate = app.state.vc.vc_process(result)
         clean_up()
