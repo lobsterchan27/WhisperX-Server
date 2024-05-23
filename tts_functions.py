@@ -249,7 +249,7 @@ def generate_tts(tts, prompt, voice):
         if isinstance(tts, TextToSpeechFast):
             gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
             
-        if isinstance(TextToSpeechSlow):
+        if isinstance(tts, TextToSpeechSlow):
             gen = tts.tts(prompt,
                           half_p=True if COMPUTE_TYPE == 'float16' else False ,
                           voice_samples=None,
