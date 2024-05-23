@@ -175,15 +175,21 @@ async def text2speech(request: TTSRequest):
     
     app.state.audio_processor.unload_whisperx()
 
-    if app.state.vc is None:
+    if app.state.vc is None and request.vc == True:
         app.state.vc = VCWrapper()
         clean_up()
+    
+    if request.backend == 'edge':
+        result, duration = await get_edge_tts(request.prompt, request.voice)
 
     async with app.state.lock:
-        result, duration, samplerate = generate_tts(app.state.tts, request.prompt, request.voice)
-        clean_up()
-        result, samplerate = app.state.vc.vc_process(result)
-        clean_up()
+        if request.backend == 'tortoise':
+            result, duration, samplerate = generate_tts(app.state.tts, request.prompt, request.voice)
+            clean_up()
+        
+        if request.vc == True:
+            result, samplerate = app.state.vc.vc_process(result)
+            clean_up()
 
         segments = [{
             'start': 0.0,
@@ -222,32 +228,6 @@ async def text2speech(request: TTSRequest):
 @app.post("/api/rvc")
 async def rvc():
     return "Not implemented yet"
-
-
-@app.post('/api/text2speech/edge')
-async def generateTTS(request: EdgeTTSRequest):
-    app.state.audio_processor.unload_whisperx()
-
-    if app.state.vc is None:
-        app.state.vc = VCWrapper()
-        clean_up()
-       
-    async with app.state.lock:
-        prompt = request.prompt
-        voice = request.voice
-        audio_data, duration = await get_edge_tts(prompt, voice)
-        audio_data, samplerate = app.state.vc.vc_process(audio_data)
-        segments = [{
-            'start': 0.0,
-            'end': duration,
-            'text': request.prompt
-        }]
-    audio_data = to_wav(audio_data, samplerate)
-    async def generate_data():
-        yield ("application/json", segments['segments'])
-        yield ("audio/wav", audio_data)
-    headers = {'Voice': request.voice}
-    return MultipartResponse()(generate_data(), headers)
 
 
 if __name__ == "__main__":

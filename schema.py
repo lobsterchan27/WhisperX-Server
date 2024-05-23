@@ -5,7 +5,7 @@ import aiofiles
 import mimetypes
 
 from datetime import datetime
-from typing import Optional, Tuple, AsyncGenerator, Dict, Any
+from typing import Optional, Tuple, AsyncGenerator, Dict, Any, Literal
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from dataclasses import dataclass
@@ -24,17 +24,14 @@ class RequestParam(BaseModel):
 class TTSRequest(BaseModel):
     prompt: str
     voice: str = 'reference'
+    backend: Literal['tortoise', 'edge'] = 'edge'
+    vc: bool = True
     #below are not implemented yet.
     sample_rate: int = 24000
     preset: str = 'ultra_fast'
     regenerate: Optional[str] = None
     seed: Optional[int] = None
     kv_cache: bool = True
-
-class EdgeTTSRequest(BaseModel):
-    prompt: str
-    voice: str
-    output_file: str
 
 class MultipartResponse:
     media_type = "multipart/form-data"
