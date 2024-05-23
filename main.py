@@ -224,7 +224,7 @@ async def rvc():
     return "Not implemented yet"
 
 
-@app.post('/api/generate/tts')
+@app.post('/api/text2speech/edge')
 async def generateTTS(request: EdgeTTSRequest):
     app.state.audio_processor.unload_whisperx()
 
