@@ -1,3 +1,8 @@
+--extra-index-url https://download.pytorch.org/whl/cu121
+pytorch==2.2.2
+torchvision==0.17.2
+torchaudio==2.2.2
+
 git+https://github.com/m-bain/whisperx.git
 fastapi
 uvicorn
@@ -7,4 +12,7 @@ aiofiles
 yt-dlp
 git+https://github.com/JarodMica/tortoise-tts.git
 pyaudio
+librosa==0.9.1
+numpy==1.23.5
+voicefixer
 ./deepspeed-0.14.0+ce78a63-cp311-cp311-win_amd64.whl
