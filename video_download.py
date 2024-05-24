@@ -162,16 +162,23 @@ async def generate_storyboard(frames, width, height, filename, output_path, i=0)
         start_time = max(0, min(frames) - 0.02)
         end_time = max(frames) + 0.02
         duration = end_time - start_time
+        
+        if len(frames) == 1:
+            # Simplified command for a single frame
+            cmd = [
+                'ffmpeg', '-ss', str(frames[0]), '-frames:v', '1', '-y', '-i', filename, 
+                '-vf', f'scale=iw*{scale_factor}:-1', f'{output_path}_grid_{i}.webp'
+            ]
+        else:
+            # Generate the thumbnail grid using the filtered timestamps
+            select_filters = [f'between(t\,{timestamp-start_time-0.02}\,{timestamp-start_time+0.02})' for timestamp in frames]
+            select_filter_str = '+'.join(select_filters)
 
-        # Generate the thumbnail grid using the filtered timestamps
-        select_filters = [f'between(t\,{timestamp-start_time-0.02}\,{timestamp-start_time+0.02})' for timestamp in frames]
-        select_filter_str = '+'.join(select_filters)
-
-        cmd = [
-            'ffmpeg', '-ss', str(start_time), '-t', str(duration), '-y', '-i', filename, '-vf',
-            f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*{scale_factor}:-1',
-            f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
-        ]
+            cmd = [
+                'ffmpeg', '-ss', str(start_time), '-t', str(duration), '-y', '-i', filename, '-vf',
+                f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*{scale_factor}:-1',
+                f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
+            ]
         process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await process.wait()
         print(f'returning from process{i}')
