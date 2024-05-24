@@ -6,12 +6,14 @@ import time
 import json
 from dotenv import load_dotenv
 
-from settings import HOSTNAME, PORT, AudioProcessorSettings
+from voicefixer import VoiceFixer
+
+from settings import HOSTNAME, PORT, DEVICE, AudioProcessorSettings
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form, Request, HTTPException
 from pydantic import HttpUrl
 from contextlib import asynccontextmanager
-from util import chunk_segments, prepare_for_align, clean_up
+from util import chunk_segments, prepare_audio, clean_up
 from fastapi.responses import Response
 
 from audio_processor import AudioProcessor
@@ -185,10 +187,24 @@ async def text2speech(request: TTSRequest):
     async with app.state.lock:
         if request.backend == 'tortoise':
             result, duration, samplerate = generate_tts(app.state.tts, request.prompt, request.voice)
+            print('dtype after tts: ' + str(result.dtype))
             clean_up()
+            
+        if request.voicefix == True:
+            result = prepare_audio(result, samplerate, 44100)
+            
+            voicefixer = VoiceFixer()
+            result = (voicefixer.restore_inmem(wav_10k=result, cuda=DEVICE == 'cuda')).squeeze()
+            print('dtype after voicefix: ' + str(result.dtype))
+            print('shape after voicefix: ' + str(result.shape))
+            print('\n\n')
+            del voicefixer
+            clean_up()
+            
         
         if request.vc == True:
             result, samplerate = app.state.vc.vc_process(result)
+            print('dtype after vc: ' + str(result.dtype))
             clean_up()
 
         segments = [{
@@ -196,7 +212,7 @@ async def text2speech(request: TTSRequest):
             'end': duration,
             'text': request.prompt
         }]
-        segments = app.state.audio_processor.alignment(segments, prepare_for_align(result, samplerate))
+        segments = app.state.audio_processor.alignment(segments, prepare_audio(result, 16000))
         clean_up()
     result = to_wav(result, samplerate)
 
