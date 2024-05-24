@@ -31,22 +31,17 @@ API_TOKEN = os.getenv("API_TOKEN")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up")
-
-    start_time = time.time()
-    app.state.tts = create_tts()
-    print(f"Tortoise Start Time: {time.time() - start_time}")
-
+    
     app.state.lock = asyncio.Lock()
-    app.state.audio_processor = AudioProcessor(model_settings=AudioProcessorSettings())
-    # app.state.audio_processor.load_whisperx()
-    app.state.audio_processor.load_align()
-    # app.state.audio_processor.load_diarization()
-
-    # start_time = time.time()
+    
+    app.state.audio_processor = None
+    app.state.tts = None
     app.state.vc = None
-    # app.state.vc = VCWrapper()
-    # print(f"VC Start Time: {time.time() - start_time}")
-
+    
+    app.state.audio_processor = AudioProcessor(model_settings=AudioProcessorSettings())
+    app.state.audio_processor.load_align()
+    # app.state.tts = create_tts()
+    
     clean_up()
 
     yield
@@ -109,11 +104,20 @@ async def transcribe_url(url: HttpUrl = Form(...),
                          fixed_interval=fixed_interval,
                          translate=translate,
                          get_video=get_video)
+    
+    if app.state.tts:
+        app.state.tts = None
+        clean_up()
+        
     file_path = await save_link(str(url), param)
     print(file_path.json)
 
     with open(file_path.json, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
+        
+    if app.state.tts:
+        app.state.tts = None
+        clean_up()
 
     if app.state.vc:
         app.state.vc = None
@@ -177,13 +181,17 @@ async def text2speech(request: TTSRequest):
     print('Using voice: ' + request.voice)
     
     app.state.audio_processor.unload_whisperx()
+    
+    if app.state.tts is None and request.backend == 'tortoise':
+        app.state.tts = create_tts()
+        clean_up()
 
     if app.state.vc is None and request.vc == True:
         app.state.vc = VCWrapper()
         clean_up()
     
     if request.backend == 'edge':
-        result, duration = await get_edge_tts(request.prompt, request.voice)
+        result, samplerate, duration = await get_edge_tts(request.prompt, request.voice)
 
     async with app.state.lock:
         if request.backend == 'tortoise':
