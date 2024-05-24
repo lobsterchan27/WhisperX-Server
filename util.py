@@ -28,16 +28,19 @@ def generate_filtered_timestamps(stdout, minimum_interval):
             prev_timestamp = timestamp
 
 # Prepare rvc output for use with alignment
-def prepare_for_align(audio, sr):
+def prepare_audio(audio, sr, target_sr):
     # Convert the audio data to floating-point format if it's not already
     if audio.dtype != np.float32 and audio.dtype != np.float64:
+        print("Original audio data type: " + str(audio.dtype))
+        print("Converting audio data to float32")
         audio = audio.astype(np.float32) / 32768.0
 
-    # Resample the audio to 16000Hz
-    resampled_audio = librosa.resample(audio, sr, 16000)
+    # Resample the audio to target_sr
+    resampled_audio = librosa.resample(audio, sr, target_sr)
 
     # Convert to mono (if it's not already)
     if len(resampled_audio.shape) > 1:
+        print("Converting audio to mono")
         resampled_audio = np.mean(resampled_audio, axis=0)
 
     # Normalize to the range -1.0 to 1.0 and convert to float32
