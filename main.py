@@ -195,6 +195,7 @@ async def text2speech(request: TTSRequest):
             
             voicefixer = VoiceFixer()
             result = (voicefixer.restore_inmem(wav_10k=result, cuda=DEVICE == 'cuda')).squeeze()
+            samplerate = 44100
             print('dtype after voicefix: ' + str(result.dtype))
             print('shape after voicefix: ' + str(result.shape))
             print('\n\n')
@@ -212,7 +213,7 @@ async def text2speech(request: TTSRequest):
             'end': duration,
             'text': request.prompt
         }]
-        segments = app.state.audio_processor.alignment(segments, prepare_audio(result, 16000))
+        segments = app.state.audio_processor.alignment(segments, prepare_audio(result, samplerate, 16000))
         clean_up()
     result = to_wav(result, samplerate)
 
