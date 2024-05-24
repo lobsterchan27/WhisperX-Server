@@ -51,14 +51,14 @@ class RVCSettings:
 
 class VCSettings:
     def __init__(self):
-        self.model_path = "JapaneseGirl_150e.pth"
+        self.model_path = "FrierenFrierenv3_e150_s15000.pth"
         self.f0_up_key=0
         self.input_path=None
         self.orig_sr = 24000
         self.output_dir_path=None
         self._is_half="False"
         self.f0method="rmvpe"
-        self.file_index = os.path.join(INDEX_DIR, "added_IVF578_Flat_nprobe_1_v2.index")
+        self.file_index = os.path.join(INDEX_DIR, "added_IVF3217_Flat_nprobe_1_FrierenFrierenv3_v2.index")
         self.file_index2=""
         self.index_rate=1
         self.filter_radius=3
