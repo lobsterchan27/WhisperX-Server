@@ -92,7 +92,7 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     os.makedirs(thumb_dir, exist_ok=True)
 
     base_filename = os.path.splitext(os.path.basename(filename))[0]
-    output_path = os.path.join(thumb_dir, base_filename)
+    output_path = os.path.join(thumb_dir, 'storyboard')
 
     # Command to get the original video's resolution
     cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', filename]
@@ -142,8 +142,6 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
 # Generates each storyboard from the given timestamps
 async def generate_storyboard(frames, width, height, filename, output_path, i=0):
     async with semaphore:
-        startTime = time.time()
-        print(f'processing process{i}')
         aspect_ratio = width / height
         grid_rows, grid_cols, aspect_ratio = get_thumbnail_layout(len(frames), aspect_ratio)
 
@@ -166,8 +164,10 @@ async def generate_storyboard(frames, width, height, filename, output_path, i=0)
         if len(frames) == 1:
             # Simplified command for a single frame
             cmd = [
-                'ffmpeg', '-ss', str(frames[0]), '-frames:v', '1', '-y', '-i', filename, 
-                '-vf', f'scale=iw*{scale_factor}:-1', f'{output_path}_grid_{i}.webp'
+                'ffmpeg', '-ss', str(start_time), '-y', '-i', filename,
+                '-vf', f'scale=iw*{scale_factor}:-1',
+                '-vframes', '1',
+                f'{output_path}_{i}.webp'
             ]
         else:
             # Generate the thumbnail grid using the filtered timestamps
@@ -177,13 +177,13 @@ async def generate_storyboard(frames, width, height, filename, output_path, i=0)
             cmd = [
                 'ffmpeg', '-ss', str(start_time), '-t', str(duration), '-y', '-i', filename, '-vf',
                 f'select=\'{select_filter_str}\',tile={grid_cols}x{grid_rows},scale=iw*{scale_factor}:-1',
-                f'{output_path}_grid_{i}.webp'  # Include the chunk index in the filename
+                '-vframes', '1',
+                f'{output_path}_{i}.webp'  # Include the chunk index in the filename
             ]
+            
         process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await process.wait()
-        print(f'returning from process{i}')
-        print(f"Time taken for process{i}: {time.time() - startTime}")
-        return f'{output_path}_grid_{i}.webp'
+        return f'{output_path}_{i}.webp'
 
 
 

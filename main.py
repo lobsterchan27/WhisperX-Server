@@ -142,9 +142,8 @@ async def transcribe_url(url: HttpUrl = Form(...),
         if storyboards:
             for index, (storyboard, chunk) in enumerate(zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func))):
                 filename = os.path.basename(storyboard)
-                storyboard_name = f"storyboard_{index}"
                 yield ("image/webp", storyboard)
-                yield ("application/json", {str(index): {"filename": storyboard_name, "segments": chunk}}, 'segments')
+                yield ("application/json", {str(index): {"filename": filename, "segments": chunk}}, 'segments')
             yield ("application/json", json_data, json_name)
 
     headers = {"Base-Filename": file_path.basename}
