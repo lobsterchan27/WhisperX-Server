@@ -18,6 +18,8 @@ from queue import Queue
 from time import time
 from scipy.io.wavfile import write
 
+import librosa
+
 
 from settings import (
     MODEL_DIR,
@@ -229,7 +231,7 @@ def generate_tts(tts, prompt, voice):
     _, conditioning_latents, _ = fetch_voice(tts, voice)
     # conditioning_latents = load_or_generate_latents(tts, voice, VOICES_DIRECTORY)
 
-    settings = {'temperature': .4, 'length_penalty': 1.0, 'repetition_penalty': 2.0,
+    settings = {'temperature': .4, 'length_penalty': 5.0, 'repetition_penalty': 2.0,
                 'top_p': .8,
                 'cond_free_k': 2.0, 'diffusion_temperature': 1.0}
     
@@ -250,15 +252,36 @@ def generate_tts(tts, prompt, voice):
             gen = tts.tts(prompt, voice_samples=None, conditioning_latents=conditioning_latents)
             
         if isinstance(tts, TextToSpeechSlow):
+            settings = {'temperature': 0.4,
+                        'top_p': 0.8,
+                        'diffusion_temperature': 1.0,
+                        'length_penalty': 6.0,
+                        'repetition_penalty': 2.0,
+                        'cond_free_k': 2.0,
+                        'num_autoregressive_samples': 2,
+                        'sample_batch_size': 2,
+                        'diffusion_iterations': 100,
+                        'voice_samples': None,
+                        'k': 1,
+                        'diffusion_sampler': 'DDIM',
+                        'breathing_room': 8,
+                        'half_p': False,
+                        'cond_free': True,
+                        'cvvp_amount': 0}
             gen = tts.tts(prompt,
                           half_p=True if COMPUTE_TYPE == 'float16' else False ,
                           voice_samples=None,
                           conditioning_latents=conditioning_latents,
-                          temperature=settings['temperature'],
-                          num_autoregressive_samples=presets['ultra_fast']['num_autoregressive_samples'],
-                          diffusion_iterations=presets['ultra_fast']['diffusion_iterations'],
-                          length_penalty=settings['length_penalty'],
-                          cvvp_amount=0)
+                          temperature=0.4,
+                          num_autoregressive_samples=2,
+                          sample_batch_size=2,
+                          diffusion_iterations=100,
+                          length_penalty=5.0,
+                          repetition_penalty=2.0,
+                          cvvp_amount=0.0,
+                          top_p=0.8,
+                          diffusion_temperature=1.0,
+                          diffusion_sampler='DDIM')
             
         end_time = time()
         audio = gen.squeeze().cpu()
@@ -347,6 +370,7 @@ async def get_edge_tts(prompt, voice):
     duration = audio_data.shape[0] / sample_rate
     os.remove(output_file)
     return audio_data, sample_rate, duration
+
 
 if __name__=='__main__':
     import io

@@ -36,7 +36,7 @@ def prepare_audio(audio, sr, target_sr):
         audio = audio.astype(np.float32) / 32768.0
 
     # Resample the audio to target_sr
-    resampled_audio = librosa.resample(audio, sr, target_sr)
+    resampled_audio = librosa.resample(audio,orig_sr=sr,target_sr=target_sr)
 
     # Convert to mono (if it's not already)
     if len(resampled_audio.shape) > 1:

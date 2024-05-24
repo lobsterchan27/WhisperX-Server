@@ -24,7 +24,7 @@ class RequestParam(BaseModel):
 class TTSRequest(BaseModel):
     prompt: str
     voice: str = 'reference'
-    backend: Literal['tortoise', 'edge'] = 'edge'
+    backend: Literal['tortoise', 'edge'] = 'tortoise'
     voicefix: bool = True
     vc: bool = True
     #below are not implemented yet.

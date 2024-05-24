@@ -191,7 +191,7 @@ async def text2speech(request: TTSRequest):
             clean_up()
             
         if request.voicefix == True:
-            result = prepare_audio(result, samplerate, 44100)
+            result = prepare_audio(audio=result, sr=samplerate, target_sr=44100)
             
             voicefixer = VoiceFixer()
             result = (voicefixer.restore_inmem(wav_10k=result, cuda=DEVICE == 'cuda')).squeeze()
@@ -202,9 +202,9 @@ async def text2speech(request: TTSRequest):
             del voicefixer
             clean_up()
             
-        
         if request.vc == True:
-            result, samplerate = app.state.vc.vc_process(result)
+            result, samplerate = app.state.vc.vc_process(result, orig_sr=samplerate)
+            
             print('dtype after vc: ' + str(result.dtype))
             clean_up()
 
