@@ -16,4 +16,5 @@ librosa==0.9.1
 numpy==1.23.5
 voicefixer
 matplotlib=3.8.2
+num2words
 ./deepspeed-0.14.0+ce78a63-cp311-cp311-win_amd64.whl
