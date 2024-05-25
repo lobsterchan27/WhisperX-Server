@@ -143,7 +143,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
             for index, (storyboard, chunk) in enumerate(zip(storyboards, chunk_segments(segments, param.segment_length, lambda x: x['start'], transform_func))):
                 filename = os.path.basename(storyboard)
                 yield ("image/webp", storyboard)
-                yield ("application/json", {str(index): {"filename": filename, "segments": chunk}}, 'segments')
+                yield ("application/json", {str(index): {"imagename": filename, "segments": chunk}}, 'segments')
             yield ("application/json", json_data, json_name)
 
     headers = {"Base-Filename": file_path.basename}
@@ -211,7 +211,7 @@ async def text2speech(request: TTSRequest):
             clean_up()
             
         if request.vc == True:
-            result, samplerate = app.state.vc.vc_process(result, orig_sr=samplerate)
+            result, samplerate = app.state.vc.vc_process(result, orig_sr=samplerate, f0_up_key=None)
             
             print('dtype after vc: ' + str(result.dtype))
             clean_up()
