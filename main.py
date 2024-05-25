@@ -7,6 +7,7 @@ import json
 from dotenv import load_dotenv
 
 from voicefixer import VoiceFixer
+from num2words import num2words
 
 from settings import HOSTNAME, PORT, DEVICE, AudioProcessorSettings
 from typing import Optional
@@ -177,6 +178,7 @@ async def transcribe_url(url: HttpUrl = Form(...),
 
 @app.post("/api/text2speech/align")
 async def text2speech(request: TTSRequest):
+    request.prompt = ' '.join(num2words(word) if word.isdigit() else word for word in request.prompt.split())
     print('Using voice: ' + request.voice)
     
     app.state.audio_processor.unload_whisperx()
@@ -195,7 +197,6 @@ async def text2speech(request: TTSRequest):
     async with app.state.lock:
         if request.backend == 'tortoise':
             result, duration, samplerate = generate_tts(app.state.tts, request.prompt, request.voice)
-            print('dtype after tts: ' + str(result.dtype))
             clean_up()
             
         if request.voicefix == True:
@@ -204,9 +205,6 @@ async def text2speech(request: TTSRequest):
             voicefixer = VoiceFixer()
             result = (voicefixer.restore_inmem(wav_10k=result, cuda=DEVICE == 'cuda')).squeeze()
             samplerate = 44100
-            print('dtype after voicefix: ' + str(result.dtype))
-            print('shape after voicefix: ' + str(result.shape))
-            print('\n\n')
             del voicefixer
             clean_up()
             

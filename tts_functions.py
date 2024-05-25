@@ -81,14 +81,13 @@ def get_chunk_size( voice ):
         result = int(total_duration / total) if total > 0 else 1
         return result
     result = int(total_duration / VOICE_CHUNK_DURATION_SIZE) if total_duration > 0 else 1
-    print(f"\n\nAutocalculated voice chunk duration size: {result}\n\n")
+    # print(f"\n\nAutocalculated voice chunk duration size: {result}\n\n")
     return result
 
 def load_or_generate_latents(tts, voice, directory: str):
     global last_voice, last_latents
     if voice != last_voice:
         save_path = f'{directory}/{voice}/{voice}.pth'
-        print(f"Loading latents from: {save_path}")  # Add this line
         if os.path.exists(save_path):
             last_latents = torch.load(save_path)
         else:
@@ -114,7 +113,6 @@ def fetch_voice(tts, voice):
     global voice_cache
     cache_key = f'{voice}:{tts.autoregressive_model_hash[:8]}'
     if cache_key in voice_cache:
-        print("\n\n#100\n\n")
         return voice_cache[cache_key]
 
     voice_latent_chunks = get_chunk_size(voice)
@@ -124,19 +122,14 @@ def fetch_voice(tts, voice):
         voice_samples, conditioning_latents = None, tts.get_random_conditioning_latents()
     else:
         voice_samples, conditioning_latents = load_voice(voice, model_hash=tts.autoregressive_model_hash)
-        
-    print(f'Voice samples: {voice_samples}')
 
     if voice_samples and len(voice_samples) > 0:
         if conditioning_latents is None:
-            print("\n\npassing through conditioning latents conditional")
             conditioning_latents = compute_latents(tts=tts, voice=voice, voice_samples=voice_samples, voice_latents_chunks=voice_latent_chunks)
-            print('conditioning latents: ', conditioning_latents)
                 
         sample_voice = torch.cat(voice_samples, dim=-1).squeeze().cpu()
         voice_samples = None
         
-    print('final conditioning_latents: ', conditioning_latents)
     voice_cache[cache_key] = (voice_samples, conditioning_latents, sample_voice)
     return voice_cache[cache_key]
 
@@ -173,7 +166,6 @@ def compute_latents(tts, voice=None, voice_samples=None, voice_latents_chunks=0,
                     print("Dataset is empty!")
                     load_from_dataset = True
         if not load_from_dataset:
-            print("\n\nComputing voice latents from provided audio samples\n\n")
             voice_samples, _ = load_voice(voice, load_latents=False)
 
     if voice_samples is None:
@@ -276,8 +268,8 @@ def generate_tts(tts, prompt, voice):
                           num_autoregressive_samples=2,
                           sample_batch_size=2,
                           diffusion_iterations=100,
-                          length_penalty=5.0,
-                          repetition_penalty=2.0,
+                          length_penalty=8.0,
+                          repetition_penalty=3.0,
                           cvvp_amount=0.0,
                           top_p=0.8,
                           diffusion_temperature=1.0,
