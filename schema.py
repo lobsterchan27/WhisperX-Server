@@ -25,7 +25,7 @@ class TTSRequest(BaseModel):
     prompt: str
     voice: str = 'reference'
     backend: Literal['tortoise', 'edge'] = 'tortoise'
-    voicefix: bool = True
+    voicefix: bool = False
     vc: bool = True
     #below are not implemented yet.
     sample_rate: int = 24000
