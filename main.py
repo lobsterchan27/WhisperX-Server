@@ -198,8 +198,9 @@ async def text2speech(request: TTSRequest):
         if request.backend == 'tortoise':
             result, duration, samplerate = generate_tts(app.state.tts, request.prompt, request.voice)
             clean_up()
-            
-        if request.voicefix == True:
+        
+        # use only VoiceFixer or VC not both
+        if request.voicefix == True and request.vc == False:
             result = prepare_audio(audio=result, sr=samplerate, target_sr=44100)
             
             voicefixer = VoiceFixer()
