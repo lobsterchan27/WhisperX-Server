@@ -56,7 +56,6 @@ class VCSettings:
         self.input_path=None
         self.orig_sr = 24000
         self.output_dir_path=None
-        self._is_half="False"
         self.f0method="rmvpe"
         self.file_index = os.path.join(INDEX_DIR, "added_IVF3217_Flat_nprobe_1_FrierenFrierenv3_v2.index")
         self.file_index2=""
