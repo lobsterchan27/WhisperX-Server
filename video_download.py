@@ -5,6 +5,7 @@ import re
 import os
 import math
 import time
+import json
 
 from util import chunk_segments, generate_filtered_timestamps
 from yt_dlp import YoutubeDL
@@ -35,26 +36,68 @@ async def save_upload_file(upload_file: UploadFile) -> str:
         return None
 
 # Download the media from the given URL
-def download_media(url, format, output_template, json=False):
-    ydl_opts = {
-        'format': format,
+async def download_media(location, json_path, get_video):
+    
+    with open(json_path, 'r', encoding='utf-8') as f:
+        info_dict = json.load(f)
+    
+    audio_opts = {
+        'format': 'bestaudio',
         'paths': {'home': '/download'},
         'restrictfilenames': True,
-        'outtmpl': output_template,
-        'writeinfojson': json,
+        'outtmpl': os.path.join(location, f'{location}.%(ext)s'),
         'quiet': True,
-        'nooverwrites': True
+        'nooverwrites': True,
     }
-
-    with YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info_dict)
-
-    if json:
-        json_filename = filename.rsplit('.', 1)[0] + '.info.json'
-        return filename, json_filename
+    
+    if get_video:
+        width = info_dict.get('width')
+        height = info_dict.get('height')
+        dimension = 'width' if width < height else 'height'
+        pixel_limit = 1080
+        video_opts = {
+            'format': f'bestvideo[{dimension}<={pixel_limit}]',
+            'paths': {'home': '/download'},
+            'restrictfilenames': True,
+            'outtmpl': os.path.join(location, f'{location}_video.%(ext)s'),
+            'quiet': True,
+            'nooverwrites': True,
+        }
+    
+    def download(opts, info_dict):
+        with YoutubeDL(opts) as ydl:
+            ydl.download_with_info_file(json_path)
+            return ydl.prepare_filename(info_dict)
+        
+    audio_task = asyncio.to_thread(download, audio_opts, info_dict)
+            
+    if get_video:
+        video_task = asyncio.to_thread(download, video_opts, info_dict)
+        audio_filename, video_filename = await asyncio.gather(audio_task, video_task)
     else:
-        return filename, None
+        audio_filename = await audio_task
+        video_filename = None
+    
+    return audio_filename, video_filename
+    
+async def download_metadata(url, location):
+    ydl_opts = {
+        'writeinfojson': True,
+        'skip_download': True,
+        'paths': {'home': '/download'},
+        'outtmpl': os.path.join(location, location),
+        'restrictfilenames': True,
+        'quiet': True
+    }
+    
+    def download():
+        with YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            return ydl.prepare_filename(info_dict)
+            
+    filename = await asyncio.to_thread(download)
+    
+    return filename + '.info.json'
 
 # Download and save the audio, video, and JSON files from the given URL
 async def save_link(url, param: RequestParam) -> SavePath:
@@ -73,14 +116,12 @@ async def save_link(url, param: RequestParam) -> SavePath:
     Returns a SavePath object containing the paths to the downloaded audio, JSON, and (optionally) video files.
     """
 
-    location = '%(title)s/%(title)s'
-
-    audio_task = asyncio.create_task(asyncio.to_thread(download_media, url, 'bestaudio', f'{location}.%(ext)s', True))
-    video_task = asyncio.create_task(asyncio.to_thread(download_media, url, 'bestvideo', f'{location}_video.%(ext)s')) if param.get_video else None
-
-    # Wait for all tasks to complete
-    audio_path, json_path = await audio_task
-    video_path = (await video_task)[0] if video_task else None
+    location = '%(title)s-%(id)s'
+    
+    json_path = await download_metadata(url, location)
+    
+    audio_path, video_path = await download_media(location, json_path, param.get_video)
+    
     base_filename = os.path.splitext(os.path.basename(audio_path))[0]
 
     return SavePath(basename=base_filename, audio=audio_path, json=json_path, video=video_path)

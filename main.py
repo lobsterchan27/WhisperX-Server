@@ -111,7 +111,6 @@ async def transcribe_url(url: HttpUrl = Form(...),
         clean_up()
         
     file_path = await save_link(str(url), param)
-    print(file_path.json)
 
     with open(file_path.json, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
