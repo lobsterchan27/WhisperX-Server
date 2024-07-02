@@ -37,7 +37,6 @@ async def save_upload_file(upload_file: UploadFile) -> str:
 
 # Download the media from the given URL
 async def download_media(location, json_path, get_video):
-    
     with open(json_path, 'r', encoding='utf-8') as f:
         info_dict = json.load(f)
     
@@ -45,7 +44,7 @@ async def download_media(location, json_path, get_video):
         'format': 'bestaudio',
         'paths': {'home': '/download'},
         'restrictfilenames': True,
-        'outtmpl': os.path.join(location, f'{location}.%(ext)s'),
+        'outtmpl': os.path.join(location, f'{location}_audio.%(ext)s'),
         'quiet': True,
         'nooverwrites': True,
     }
@@ -64,19 +63,26 @@ async def download_media(location, json_path, get_video):
             'nooverwrites': True,
         }
     
-    def download(opts, info_dict):
+    def download(opts):
         with YoutubeDL(opts) as ydl:
-            ydl.download_with_info_file(json_path)
-            return ydl.prepare_filename(info_dict)
-        
-    audio_task = asyncio.to_thread(download, audio_opts, info_dict)
-            
+            result = ydl.process_ie_result(info_dict, download=True)
+            return result
+    
+    audio_task = asyncio.to_thread(download, audio_opts)
+    
     if get_video:
-        video_task = asyncio.to_thread(download, video_opts, info_dict)
-        audio_filename, video_filename = await asyncio.gather(audio_task, video_task)
+        video_task = asyncio.to_thread(download, video_opts)
+        audio_result, video_result = await asyncio.gather(audio_task, video_task)
     else:
-        audio_filename = await audio_task
-        video_filename = None
+        audio_result = await audio_task
+        video_result = None
+    
+    # Determine the correct filenames from the result
+    audio_filename = audio_result['requested_downloads'][0]['filepath']
+    video_filename = video_result['requested_downloads'][0]['filepath'] if get_video else None
+
+    print(f"Audio: {audio_filename}")
+    print(f"Video: {video_filename}")
     
     return audio_filename, video_filename
     
@@ -132,7 +138,6 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
     thumb_dir = os.path.join(os.path.dirname(filename), 'thumb')
     os.makedirs(thumb_dir, exist_ok=True)
 
-    base_filename = os.path.splitext(os.path.basename(filename))[0]
     output_path = os.path.join(thumb_dir, 'storyboard')
 
     # Command to get the original video's resolution
@@ -157,7 +162,6 @@ async def generate_storyboards(filename: str, param: RequestParam) -> str:
 
     # Read ffprobe output
     stdout, _ = await ffprobe_process.communicate()
-
     # Parse the output to find the original width and height
     width, height = map(int, stdout.decode().strip().split('x'))
 
