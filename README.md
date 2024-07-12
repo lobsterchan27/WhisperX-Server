@@ -66,6 +66,11 @@ WhisperX Server is a powerful backend application that provides advanced audio a
 
 ## TODO
 
+- [ ] Implement TTS Backends
+   - [x] Tortoise
+   - [x] Azure
+   - [ ] StyleTTS
+   - [ ] xTTS2
 - [ ] Implement chunk determination for improved transcription accuracy
 - [ ] Add support for outputting video in different languages
 - [ ] Implement unit tests and integration tests
